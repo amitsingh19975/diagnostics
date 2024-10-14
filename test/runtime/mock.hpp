@@ -152,7 +152,7 @@ struct TokenConverter: DiagnosticConverter<Info> {
     }
 
     auto convert_loc(Info loc, [[maybe_unused]] builder_t builder) const -> dark::DiagnosticLocation override {
-        auto lines = std::max(1zu, this->lines);
+        auto temp_lines = std::max(1zu, this->lines);
         auto abs_pos = 0u;
         auto marker = dark::LocRelSpan::from_size(0, 2).resolve(abs_pos);
         auto temp = dark::DiagnosticLocationTokens {
@@ -162,7 +162,7 @@ struct TokenConverter: DiagnosticConverter<Info> {
             .marker = marker 
         };
         
-        for (auto i = 1; i < lines; ++i) {
+        for (auto i = 1u; i < temp_lines; ++i) {
             temp.lines.push_back(make_line({ .line = loc.line + i, .col = loc.col }, abs_pos));
         }
 

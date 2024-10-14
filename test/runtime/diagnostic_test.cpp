@@ -126,7 +126,7 @@ TEST_CASE("Diagnostic Builder", "[diagnostic:builder]") {
             REQUIRE(info.span() == Span(1, 2));
         }
     }
-}
+};
 
 TEST_CASE("Simple Diagnostic Builder Output", "[simple_diagnostic:single_line:output]") {
     {
