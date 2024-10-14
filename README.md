@@ -6,6 +6,7 @@ A diagnostic library for printing compiler diagnostics.
 - The diagnostic architecture is based on [Google's Carbon Language](https://github.com/carbon-language/carbon-lang) diagnostic implementation, but not the exact implementation.
 - `CowString` is inspired by Rust's `Cow` implementation.
 - The error reporting or rendering on the terminal is closer to the Rust's.
+- `Stream` has similar interface to llvm's `raw_ostream` with extensions.
 
 # Basic Concepts
 
