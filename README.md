@@ -180,3 +180,7 @@ int main() {
 
 ## Note:
 You can see more examples inside the example folder.
+
+# Outputs/Screenshots
+## Example 1
+![Example 1](assets/example_1.png)
