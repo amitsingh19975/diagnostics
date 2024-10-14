@@ -1,10 +1,6 @@
 #include <cstdio>
 #include <iostream>
 #include "diagnostics.hpp"
-#include "diagnostics/basic.hpp"
-#include "diagnostics/consumer.hpp"
-#include "diagnostics/core/stream.hpp"
-#include "diagnostics/span.hpp"
 #include <cxxabi.h>
 
 void print_type(char const* name) {
