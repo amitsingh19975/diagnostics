@@ -1680,7 +1680,8 @@ namespace dark::internal {
         std::size_t width,
         DiagnosticRenderContext const& context,
         std::vector<DisplaySpan> const& marked_items,
-        std::vector<Marker>& markers
+        std::vector<Marker>& markers,
+        BoundingBox box
     ) -> void {
         using marker_t = std::array<bool, static_cast<std::size_t>(MarkerKind::Size)>;
         // - Ensure space for start arrows
@@ -1692,7 +1693,7 @@ namespace dark::internal {
         std::unordered_map<std::size_t, marker_t> markers_count;
         markers_count.reserve(marked_items.size());
 
-        auto const start_width = width + 2;
+        auto const start_width = box.min_x + 1;
 
         for (auto const& m: markers) {
             auto mask = markers_count[m.message_positions.marked_item_id];
@@ -1869,11 +1870,11 @@ namespace dark::internal {
                     case MarkerArrowDirection::Down: {
                         auto c = marker.marker_pos;
                         switch (marker.kind) {
-                        case MarkerKind::Remove: case MarkerKind::Insert: break;
-                        default: {
-                            screen.write("^", c, style);
-                            c = marker.marker_pos;
-                        }
+                            case MarkerKind::Remove: case MarkerKind::Insert: break;
+                            default: {
+                                screen.write("^", c, style);
+                                c = marker.marker_pos;
+                            }
                         }
                         ++c.row;
                         screen.write("|", c, style);
@@ -2212,6 +2213,7 @@ namespace dark::internal {
                 iter(start, bias);
             };
 
+
             current_path.push_back(start);
 
             find_path_helper(find_path_helper, start, bias);
@@ -2302,7 +2304,7 @@ namespace dark::internal {
             auto markers = generate_markers_for_render(messages, marked_items, message_position);
             ensure_marker_spaces(screen, width, markers);
             render_markers(screen, width, context, marked_items, markers);
-            ensure_arrow_spaces(screen, width, context, marked_items, markers);
+            ensure_arrow_spaces(screen, width, context, marked_items, markers, box);
             box.max_x = screen.cols();
             box.max_y = screen.get_rows_to_print();
             render_path_between_marker_and_message(screen, markers, box);
