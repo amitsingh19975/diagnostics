@@ -58,7 +58,7 @@ int main() {
                 .del(dark::MarkerRelSpan(4, 8))
                 .error(
                     "prototype does not match the defination",
-                    dark::Span(0, 2),
+                    dark::LocRelSpan(0, 2),
                     dark::Span(19, 24)
                 )
                 .warn(dark::Span(6, 10), dark::Span(25, 27))
