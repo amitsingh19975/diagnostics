@@ -19,9 +19,9 @@ Source: |xxxxxxxxxxxxxxx|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|xxxxxxxxxxx|
 		^				|					                    |
 		|				|									    |
 		Span			|xxxxxxxxxxxxxxxxxx^^^^^xxxxxxxxxxxxxxxx|
-						^                  ^
-						|                  |
-						LocRelSpan         MarkerRelSpan
+                                        ^                  ^
+                                        |                  |
+                                        LocRelSpan         MarkerRelSpan
 ```
 
 ## 2. Context
@@ -29,10 +29,10 @@ This provides more information to the current diagnostic that will be rendered b
 
 ```
 Source: |xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|
-								^				^
-								|				|
-								|				This is an error
-								|- This is a second error.
+                                ^				^
+                                |				|
+                                |				This is an error
+                                |- This is a second error.
 ```
 
 ## 3. Sub-Diagnostic
