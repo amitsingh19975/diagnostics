@@ -43,7 +43,7 @@ private:
         unsigned col  {0};
         unsigned last_line_index{0};
         if (source.size() == 0) return { 0, 0 };
-        for (auto i = 0zu; i < source.size(); ++i) {
+        for (auto i = 0u; i < source.size(); ++i) {
             if (source[i] == '\n') {
                 ++line;
                 last_line_index = i;
