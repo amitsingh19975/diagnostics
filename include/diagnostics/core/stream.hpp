@@ -3,7 +3,6 @@
 
 #include "terminal_config.hpp"
 #include <functional>
-#include <optional>
 #include <sstream>
 #include <ostream>
 #include <string_view>
