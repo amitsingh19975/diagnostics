@@ -16,12 +16,12 @@ A diagnostic library for printing compiler diagnostics.
 
 ```
 Source: |xxxxxxxxxxxxxxx|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|xxxxxxxxxxx|
-		^				|					                    |
-		|				|									    |
-		Span			|xxxxxxxxxxxxxxxxxx^^^^^xxxxxxxxxxxxxxxx|
-                                        ^                  ^
-                                        |                  |
-                                        LocRelSpan         MarkerRelSpan
+        ^		|		                        |
+        |		|	    			        |
+        Span		|xxxxxxxxxxxxxxxxxx^^^^^xxxxxxxxxxxxxxxx|
+                        ^                  ^
+                        |                  |
+                        LocRelSpan         MarkerRelSpan
 ```
 
 ## 2. Context
