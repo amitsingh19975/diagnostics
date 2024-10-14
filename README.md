@@ -182,5 +182,12 @@ int main() {
 You can see more examples inside the example folder.
 
 # Outputs/Screenshots
+
 ## Example 1
 ![Example 1](assets/example_1.png)
+
+## Example 2
+![Example 2](assets/example_2.png)
+
+## Example 3
+![Example 3](assets/example_3.png)
