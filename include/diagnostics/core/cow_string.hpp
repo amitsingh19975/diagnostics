@@ -1,7 +1,8 @@
 #ifndef DARK_DIAGNOSTICS_CORE_COW_STRING_HPP
 #define DARK_DIAGNOSTICS_CORE_COW_STRING_HPP
 
-#include "diagnostics/core/string_utils.hpp"
+#include "string_utils.hpp"
+#include "utf8.hpp"
 #include <stddef.h>
 #include <string>
 #include <ostream>
@@ -158,6 +159,19 @@ namespace dark::core {
             } else {
                 return std::get<0>(m_data).substr(pos, n);
             }
+        }
+        
+        constexpr auto utf8_char_count() const noexcept {
+            auto s = to_borrowed();
+            auto i = 0zu;
+            auto count = 0zu;
+            while (i < s.size()) {
+                auto len = core::utf8::get_length(s[i]);
+                ++count;
+                i += len;
+            }
+
+            return count;
         }
 
     private:
