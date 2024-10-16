@@ -566,10 +566,21 @@ namespace dark::internal {
             auto const size = s.size();
             while (i < size) {
                 i += escape_char(s, i, [this, &cursor, style](std::string_view s){
-                    write(s, cursor, style);
+                    write(s, cursor, style, [](auto&, auto&){});
                 });
             }
         }
+        
+        constexpr auto write_escape(std::string_view s, CursorPosition& cursor, Style style, auto&& fn) -> void {
+            auto i = 0zu;
+            auto const size = s.size();
+            while (i < size) {
+                i += escape_char(s, i, [this, &cursor, style, &fn](std::string_view s){
+                    write(s, cursor, style, fn);
+                });
+            }
+        }
+
         constexpr auto try_write_escape(std::string_view s, CursorPosition& cursor, Style style = {}) -> std::size_t {
             auto i = 0zu;
             auto const size = s.size();
@@ -721,6 +732,7 @@ namespace dark::internal {
             Span parent_span,
             unsigned line_number,
             core::SmallVec<BasicDiagnosticMessage, 2> const& messages,
+            BoundingBox box,
             auto&& iterate_messages,
             auto&& set_token_info
         ) -> DiagnosticRenderLineInfo {
@@ -899,7 +911,7 @@ namespace dark::internal {
                         break;
                     }   
 
-                    len += text.size();
+                    len += text.utf8_char_count();
                 }
                 
                 if (it == res.infos.end()) continue;
@@ -941,6 +953,90 @@ namespace dark::internal {
                 }
             }
 
+            std::size_t len{};
+            for (auto const& el: res.infos) {
+                len += el.text.utf8_char_count();
+            }
+
+            if (!res.infos.empty()) {
+                bool removed_first = false;
+                bool removed_last = false;
+                auto const space = box.max_x - box.min_x - 4;
+
+                auto utf8_substr = [](core::CowString& text, std::size_t len) {
+                    auto size = 0zu;
+                    auto i = 0zu;
+                    auto s = text.to_borrowed();
+                    while (i < s.size()) {
+                        auto l = static_cast<std::size_t>(core::utf8::get_length(s[i]));
+                        if (size + l > len) break;
+                        size += l;
+                        i += l;
+                    }
+
+                    return std::make_pair(s.substr(0, size), size);
+                };
+                
+                // Remove from the back first
+                while (space < len) {
+                    if (res.infos.size() < 2) break;
+                    auto& back = res.infos.back();
+                    if (back.is_skippable()) {
+                        auto text_len = back.text.utf8_char_count();
+                        removed_last = true;
+                        if (len < space + text_len) {
+                            auto [s, size] = utf8_substr(back.text, space - (len - text_len) - 3);
+                            len -= size;
+                            back.text = std::move(s);
+                            break;
+                        }
+                        len -= text_len;
+                        res.infos.pop_back();
+                    } else break;
+                    
+                }
+
+                // Remove from the back
+                while (space < len) {
+                    if (res.infos.size() < 2) break;
+                    auto& front = res.infos.front();
+                    if (front.is_skippable()) {
+                        auto text_len = front.text.utf8_char_count();
+                        removed_last = true;
+                        if (len < space + text_len) {
+                            auto [s, size] = utf8_substr(front.text, space - (len - text_len) - 3);
+                            len -= size;
+                            front.text = std::move(s);
+                            break;
+                        }
+                        removed_first = true;
+                        res.infos.erase(res.infos.begin(), res.infos.begin() + 1);
+                    } else break;        
+                }
+
+                if (space < len && !res.infos.empty() && res.is_skippable()) {
+                    auto& temp = res.infos[0];
+                    auto [s, size] = utf8_substr(temp.text, space - 3);
+                    temp.text = std::move(s);
+                    len -= size;
+                    removed_last = true;
+                }
+
+                if (removed_last) {
+                    res.infos.push_back({
+                        .text = "...",
+                        .style = { .color = line_color, .is_bold = true },
+                    });
+                }
+
+                if (removed_first) {
+                    res.infos.insert(res.infos.begin(), {
+                        .text = "...",
+                        .style = { .color = line_color, .is_bold = true },
+                    });
+                }
+            }
+
             return res;
         }
         
@@ -948,12 +1044,14 @@ namespace dark::internal {
             std::string_view source,
             unsigned line_number,
             Span parent_span,
-            core::SmallVec<BasicDiagnosticMessage, 2> const& messages
+            core::SmallVec<BasicDiagnosticMessage, 2> const& messages,
+            BoundingBox box
         ) -> DiagnosticRenderLineInfo {
             return parse(
                 parent_span,
                 line_number,
                 messages,
+                box,
                 [parent_span](auto&& body) {
                     body(parent_span, parent_span.start());
                 },
@@ -970,7 +1068,6 @@ namespace dark::internal {
                         push_back(text, {}, is_marked);
                     }
                 }
-
             );
         }
 
@@ -978,7 +1075,8 @@ namespace dark::internal {
         
         static auto parse(
             LineDiagnosticToken& line,
-            core::SmallVec<BasicDiagnosticMessage, 2> const& messages
+            core::SmallVec<BasicDiagnosticMessage, 2> const& messages,
+            BoundingBox box
         ) -> DiagnosticRenderLineInfo {
             auto const source_span = line.span();
             auto const line_number = line.line_number;
@@ -1041,6 +1139,7 @@ namespace dark::internal {
                 source_span,
                 line_number,
                 messages,
+                box,
                 [&tokens, line, source_span](auto&& body) {
                     for (auto i = 0zu; i < tokens.size(); ++i) {
                         body(line.span_for(i), source_span.start());
@@ -1076,6 +1175,7 @@ namespace dark::internal {
         static auto from_loaction_item(
             BasicDiagnosticLocationItem const& loc,
             core::SmallVec<BasicDiagnosticMessage, 2> const& messages,
+            BoundingBox box,
             std::size_t skip_line_cutoff = 5 // 0 means no line will be removed
         ) -> DiagnosticRenderContext {
             DiagnosticRenderContext res{};
@@ -1098,7 +1198,7 @@ namespace dark::internal {
                 }
                 
                 auto span = Span::from_usize(abs_pos, text.size());
-                auto line_info = DiagnosticRenderLineInfo::parse(text, line_number, span,  messages);
+                auto line_info = DiagnosticRenderLineInfo::parse(text, line_number, span,  messages, box);
                 res.lines.push_back(std::move(line_info));
                 abs_pos += text.size();
                 ++line_number;
@@ -1136,7 +1236,8 @@ namespace dark::internal {
 
         static auto from_tokens(
             DiagnosticLocationTokens& loc,
-            core::SmallVec<BasicDiagnosticMessage, 2>& messages
+            core::SmallVec<BasicDiagnosticMessage, 2>& messages,
+            BoundingBox box
         ) -> DiagnosticRenderContext {
             auto res = DiagnosticRenderContext{};
 
@@ -1148,7 +1249,7 @@ namespace dark::internal {
                 std::stable_sort(line.tokens.begin(), line.tokens.end(), [](auto const& l, auto const& r){
                     return l.column_number < r.column_number; 
                 });
-                auto line_info = DiagnosticRenderLineInfo::parse(line, messages);
+                auto line_info = DiagnosticRenderLineInfo::parse(line, messages, box);
                 res.lines.push_back(std::move(line_info));
             } 
 
@@ -1289,7 +1390,8 @@ namespace dark::internal {
         TerminalScreen& screen,
         CursorPosition& cursor,
         std::size_t width,
-        DiagnosticRenderContext const& context
+        DiagnosticRenderContext const& context,
+        BoundingBox box
     ) -> std::vector<DisplaySpan> {
         std::vector<DisplaySpan> markers;
         auto const& lines = context.lines;
@@ -1311,29 +1413,30 @@ namespace dark::internal {
 
             render_line_start(screen, cursor, width, line.line_number);
             screen.pad_with(" ", cursor, 1); 
-            auto const padding = cursor.col;
 
             for (auto i = 0zu; i < infos.size(); ++i) {
                 auto info = infos[i];
                 if (info.text.empty()) continue;
+                auto style = info.style;
                 if (info.is_skippable()) {
-                    screen.write_escape(info.text.to_borrowed(), cursor, info.style);
+                    screen.write_escape(info.text.to_borrowed(), cursor, style, [box](auto& c, Style&) {
+                        c.col = box.min_x + 1;
+                    });
                     continue;
                 }
                 
                 auto old_c = cursor;
-                auto n = screen.try_write_escape(info.text.to_borrowed(), cursor, info.style);
+                auto n = screen.try_write_escape(info.text.to_borrowed(), cursor, style);
                 if (n == info.text.size()) {
                     markers.emplace_back(old_c, l, i);
                     continue;
                 }
                 
-                screen.pad_with(" ", old_c, static_cast<unsigned>(cursor.col - old_c.col));
-                
                 cursor.next_line();
-                cursor.col = padding;
                 markers.emplace_back(cursor, l, i);
-                screen.write_escape(info.text.to_borrowed(), cursor, info.style);
+                screen.write_escape(info.text.to_borrowed(), cursor, style, [box](auto& c, Style&) {
+                    c.col = box.min_x + 1;
+                });
             }
             cursor.next_line();
         }
@@ -2299,7 +2402,7 @@ namespace dark::internal {
         BoundingBox box
     ) -> void {
         if (!context.lines.empty()) {
-            auto marked_items = render_diagnostic_context_text(screen, cursor, width, context);
+            auto marked_items = render_diagnostic_context_text(screen, cursor, width, context, box);
             auto message_position = place_messages(screen, width, context, marked_items, messages, box); 
             auto markers = generate_markers_for_render(messages, marked_items, message_position);
             ensure_marker_spaces(screen, width, markers);
@@ -2329,7 +2432,7 @@ namespace dark::internal {
             });
         }
         sort_context_span(messages);
-        auto context = DiagnosticRenderContext::from_loaction_item(loc, messages);
+        auto context = DiagnosticRenderContext::from_loaction_item(loc, messages, box);
         render_location_helper(
             screen,
             cursor,
@@ -2362,7 +2465,7 @@ namespace dark::internal {
             return l.line_number < r.line_number;
         }); 
         
-        auto context = DiagnosticRenderContext::from_tokens(loc, messages); 
+        auto context = DiagnosticRenderContext::from_tokens(loc, messages, box); 
         render_location_helper(
             screen,
             cursor,
