@@ -1496,7 +1496,7 @@ namespace dark::internal {
                 auto text = message.message.to_borrowed();
                 auto span = message.spans[s_id].shift(-abs_pos);
 
-                auto text_size = text.size();
+                auto text_size = message.message.utf8_char_count();
                 auto cursor = el.cursor;
                 cursor.col += span.start();
 
@@ -1557,13 +1557,13 @@ namespace dark::internal {
                         auto new_c = item_cursor;
                         new_c.row = last_row;
                         // there is no remaining space so we assign the text at the middle of the column.
-                        if (remaining_space == 0) {
+                        if (remaining_space <= 20) {
                             auto half = text_size >> 1;
                             auto line_width = std::min(half_col, half);
                             // |.....................................................|
                             // [-------------------- half_col -----------------------]
                             // [--(half_col - line_width)--][------ new_c.col -------]
-                            new_c.col = half_col + (half_col - line_width);                        
+                            new_c.col = half_col + (half_col - line_width);
                         } else {
                             // Divide the text into chunks of remaining space, and check if
                             // it exceeding 2 to readjust the position. 
