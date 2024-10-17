@@ -1556,8 +1556,9 @@ namespace dark::internal {
                         auto remaining_space = (max_cols - item_cursor.col);
                         auto new_c = item_cursor;
                         new_c.row = last_row;
+                    
                         // there is no remaining space so we assign the text at the middle of the column.
-                        if (remaining_space <= 20) {
+                        if (remaining_space == 0) {
                             auto half = text_size >> 1;
                             auto line_width = std::min(half_col, half);
                             // |.....................................................|
@@ -1569,13 +1570,14 @@ namespace dark::internal {
                             // it exceeding 2 to readjust the position. 
                             auto lines_required = text_size / remaining_space;
                             if (lines_required > 2) {
-                                auto rem = std::min(text_size % remaining_space, half_col);
-                                if (item_cursor.col > half_col) {
-                                    auto start = std::max(item_cursor.col - rem, half_col);
-                                    new_c.col = start;
-                                } else {
-                                    new_c.col = item_cursor.col;
-                                } 
+                                while (item_cursor.col > half_col) {
+                                    if (lines_required < 3) break;
+                                    auto temp = std::max(item_cursor.col, remaining_space) - remaining_space;
+                                    if (temp < half_col) break;
+                                    item_cursor.col = temp;
+                                    --lines_required;
+                                }
+                                new_c.col = item_cursor.col;
                             } else {
                                 new_c.col = item_cursor.col;
                             }
