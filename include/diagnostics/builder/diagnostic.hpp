@@ -80,12 +80,12 @@ namespace dark::internal {
             DiagnosticBase<DiagnosticKindType, Args...> const& base,
             core::Formatter formatter
         ) -> void {
-            m_diagnostic =  {
+            m_diagnostic = std::move(BasicDiagnostic<DiagnosticKindType> (
                 std::move(base.kind),
                 level,
                 std::move(formatter),
-                std::move(location)
-            };
+                std::move(location) 
+            ));
         }
 
     private:
