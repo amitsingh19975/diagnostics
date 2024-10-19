@@ -13,6 +13,35 @@
 
 namespace dark::core {
 
+    namespace internal {
+        template <typename>
+        struct SmallVecIteratorInto; 
+        
+        template <typename T>
+        struct SmallVecIteratorInto<std::vector<T>> {
+            using base_type = std::vector<T>; 
+            using difference_type = typename base_type::difference_type; 
+            using reference = typename base_type::reference; 
+            using const_reference = typename base_type::const_reference; 
+            using iterator = typename base_type::iterator; 
+            using const_iterator = typename base_type::const_iterator; 
+            using reverse_iterator = typename base_type::reverse_iterator; 
+            using const_reverse_iterator = typename base_type::const_reverse_iterator; 
+        }; 
+        
+        template <typename T, std::size_t N>
+        struct SmallVecIteratorInto<std::variant<std::array<T, N>, std::vector<T>>> {
+            using base_type = std::variant<std::array<T, N>, std::vector<T>>; 
+            using difference_type = std::ptrdiff_t;
+            using reference = T&;
+            using const_reference = T const&;
+            using iterator = T*;
+            using const_iterator = T const*;
+            using reverse_iterator = std::reverse_iterator<iterator>;
+            using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+        }; 
+    } // namespace internal
+
     template<typename T, std::size_t N = 7>
     class SmallVec {
         static constexpr bool is_dynamic_size = (N == 0);
@@ -21,15 +50,16 @@ namespace dark::core {
             std::vector<T>,
             std::variant<std::array<T, N>, std::vector<T>>
         >;
+        using iter_info = internal::SmallVecIteratorInto<base_type>;
     public:
-        using difference_type = std::ptrdiff_t;
         using size_type = std::size_t;
-        using reference = T&;
-        using const_reference = T const&;
-        using iterator = T*;
-        using const_iterator = T const*;
-        using reverse_iterator = std::reverse_iterator<iterator>;
-        using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+        using difference_type = typename iter_info::difference_type; 
+        using reference = typename iter_info::reference; 
+        using const_reference = typename iter_info::const_reference; 
+        using iterator = typename iter_info::iterator; 
+        using const_iterator = typename iter_info::const_iterator; 
+        using reverse_iterator = typename iter_info::reverse_iterator; 
+        using const_reverse_iterator = typename iter_info::const_reverse_iterator; 
 
         constexpr SmallVec() noexcept requires (!is_dynamic_size)
             : m_data(std::array<T, N>())
@@ -134,21 +164,23 @@ namespace dark::core {
         }
 
         constexpr auto begin() noexcept -> iterator {
-            if constexpr (is_dynamic_size) return m_data.data();
+            if constexpr (is_dynamic_size) return m_data.begin();
             else return std::visit([](auto& v) { return v.data(); }, m_data);
         }
 
         constexpr auto end() noexcept -> iterator {
-            return begin() + size();
+            if constexpr (is_dynamic_size) return m_data.end();
+            else return begin() + size();
         }
 
         constexpr auto begin() const noexcept -> const_iterator {
-            if constexpr (is_dynamic_size) return m_data.data();
+            if constexpr (is_dynamic_size) return m_data.begin();
             else return std::visit([](auto& v) { return v.data(); }, m_data);
         }
 
         constexpr auto end() const noexcept -> const_iterator {
-            return begin() + size();
+            if constexpr (is_dynamic_size) return m_data.end();
+            else return begin() + size();
         }
 
         constexpr auto rbegin() noexcept -> reverse_iterator {
