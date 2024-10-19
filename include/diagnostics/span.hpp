@@ -1,7 +1,7 @@
 #ifndef DARK_DIAGNOSTICS_SPAN_HPP
 #define DARK_DIAGNOSTICS_SPAN_HPP
 
-#include "diagnostics/core/small_vector.hpp"
+#include "core/small_vector.hpp"
 #include <algorithm>
 #include <format>
 #include <cassert>
@@ -247,8 +247,8 @@ namespace dark {
 
         friend auto swap(BasicSpan& lhs, BasicSpan& rhs) noexcept -> void {
             using std::swap;
-            std::swap(lhs.m_size, rhs.m_size);
-            std::swap(lhs.m_start, rhs.m_start);
+            swap(lhs.m_size, rhs.m_size);
+            swap(lhs.m_start, rhs.m_start);
         }
 
         friend auto operator<<(std::ostream& os, BasicSpan const& s) -> std::ostream& {
