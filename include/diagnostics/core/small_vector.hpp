@@ -341,6 +341,12 @@ namespace dark::core {
             return this->operator[](size() - 1);
         }
 
+        friend void swap(SmallVec& lhs, SmallVec& rhs) {
+            using namespace std;
+            swap(lhs.m_data, rhs.m_data);
+            swap(lhs.m_size, rhs.m_size);
+        }
+
     private:
         template <typename U>
         auto push_back_helper(U&& val) -> void {
