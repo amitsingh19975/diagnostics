@@ -1,7 +1,7 @@
 #ifndef DARK_DIAGNOSTICS_BUILDER_SUB_DIAGNOSTIC_HPP
 #define DARK_DIAGNOSTICS_BUILDER_SUB_DIAGNOSTIC_HPP
 
-#include "diagnostics/builder/context.hpp"
+#include "../builder/context.hpp"
 
 namespace dark {
     template <typename LocT, typename DiagnosticKindType>

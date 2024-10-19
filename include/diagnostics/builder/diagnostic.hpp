@@ -1,8 +1,8 @@
 #ifndef DARK_DIAGNOSTICS_BUILDER_DIAGNOSTIC_HPP
 #define DARK_DIAGNOSTICS_BUILDER_DIAGNOSTIC_HPP
 
-#include "diagnostics/basic.hpp"
-#include "diagnostics/core/formatter.hpp"
+#include "../basic.hpp"
+#include "../core/formatter.hpp"
 #include "sub_diagnostic.hpp"
 
 namespace dark {

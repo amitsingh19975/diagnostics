@@ -1,9 +1,9 @@
 #ifndef DARK_DIAGNOSTICS_BUILDER_CONTEXT_HPP
 #define DARK_DIAGNOSTICS_BUILDER_CONTEXT_HPP
 
-#include "diagnostics/basic.hpp"
-#include "diagnostics/core/cow_string.hpp"
-#include "diagnostics/span.hpp"
+#include "../basic.hpp"
+#include "../core/cow_string.hpp"
+#include "../span.hpp"
 
 namespace dark {
     namespace detail {

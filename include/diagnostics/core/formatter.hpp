@@ -1,11 +1,11 @@
 #ifndef DARK_DIAGNOSTICS_CORE_FORMATTER_HPP
 #define DARK_DIAGNOSTICS_CORE_FORMATTER_HPP
 
-#include "diagnostics/core/cow_string.hpp"
-#include "diagnostics/core/format_string.hpp"
-#include "diagnostics/core/small_vector.hpp"
-#include "diagnostics/core/static_string.hpp"
-#include "diagnostics/core/stream.hpp"
+#include "../core/cow_string.hpp"
+#include "../core/format_string.hpp"
+#include "../core/small_vector.hpp"
+#include "../core/static_string.hpp"
+#include "../core/stream.hpp"
 #include <iostream>
 #include <sstream>
 #include <string_view>

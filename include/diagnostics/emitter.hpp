@@ -4,7 +4,7 @@
 #include "consumer.hpp"
 #include "core/function_ref.hpp"
 #include "core/small_vector.hpp"
-#include "diagnostics/basic.hpp"
+#include "basic.hpp"
 #include "line_converter.hpp"
 #include <cassert>
 #include <utility>

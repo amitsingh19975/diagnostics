@@ -2,8 +2,8 @@
 #define DARK_DIAGNOSTICS_CONSUMER_HPP
 
 #include "basic.hpp"
-#include "diagnostics/core/small_vector.hpp"
-#include "diagnostics/printer.hpp"
+#include "core/small_vector.hpp"
+#include "printer.hpp"
 #include <algorithm>
 #include <cassert>
 

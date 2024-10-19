@@ -1,15 +1,15 @@
 #ifndef DARK_DIAGNOSTICS_PRINTER_HPP
 #define DARK_DIAGNOSTICS_PRINTER_HPP
 
-#include "diagnostics/basic.hpp"
-#include "diagnostics/core/cow_string.hpp"
-#include "diagnostics/core/formatter.hpp"
-#include "diagnostics/core/small_vector.hpp"
-#include "diagnostics/core/stream.hpp"
-#include "diagnostics/core/string_utils.hpp"
-#include "diagnostics/core/terminal_config.hpp"
-#include "diagnostics/core/utf8.hpp"
-#include "diagnostics/span.hpp"
+#include "basic.hpp"
+#include "core/cow_string.hpp"
+#include "core/formatter.hpp"
+#include "core/small_vector.hpp"
+#include "core/stream.hpp"
+#include "core/string_utils.hpp"
+#include "core/terminal_config.hpp"
+#include "core/utf8.hpp"
+#include "span.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <functional>

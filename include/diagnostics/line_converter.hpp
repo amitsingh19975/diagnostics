@@ -2,9 +2,7 @@
 #define DARK_DIAGNOSTICS_LINE_CONVERTER_HPP
 
 #include "basic.hpp"
-#include "diagnostics/core/function_ref.hpp"
 #include <cstddef>
-#include <variant>
 
 namespace dark {
 
