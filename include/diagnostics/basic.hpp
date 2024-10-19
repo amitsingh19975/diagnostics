@@ -1,11 +1,11 @@
 #ifndef DARK_DIAGNOSTICS_BASIC_HPP
 #define DARK_DIAGNOSTICS_BASIC_HPP
 
-#include "diagnostics/core/cow_string.hpp"
-#include "diagnostics/core/formatter.hpp"
-#include "diagnostics/core/small_vector.hpp"
-#include "diagnostics/core/stream.hpp"
-#include "diagnostics/span.hpp"
+#include "core/cow_string.hpp"
+#include "core/formatter.hpp"
+#include "core/small_vector.hpp"
+#include "core/stream.hpp"
+#include "span.hpp"
 #include <numeric>
 #include <string_view>
 #include <type_traits>
@@ -111,6 +111,12 @@ namespace dark {
                 return std::min(res, line.source_location);
             });
         }
+
+        friend void swap(DiagnosticLocationTokens& lhs, DiagnosticLocationTokens& rhs) {
+            using std::swap;
+            swap(lhs.lines, rhs.lines);
+            swap(lhs.marker, rhs.marker); 
+        }
     };
 
     namespace detail {
@@ -170,30 +176,11 @@ namespace dark {
 
         // Used inside the sorted consumer
         constexpr auto operator<(DiagnosticLocation const& other) const noexcept -> bool {
-            std::tuple<std::string_view, unsigned, unsigned> lhs{ filename, 0, 0 };
-            std::tuple<std::string_view, unsigned, unsigned> rhs{ other.filename, 0, 0 };
-
-            if (is_location_item()) {
-                auto const& loc = get_as_location_item();
-                std::get<1>(lhs) = loc.line_number;
-                std::get<2>(lhs) = loc.column_number;
-            } else {
-                auto const& loc = get_as_location_tokens();
-                if (loc.lines.empty()) return false;
-                std::get<1>(lhs) = loc.lines[0].line_number;
-                std::get<2>(lhs) = loc.marker.start();
-            }
-
-            if (other.is_location_item()) {
-                auto const& loc = other.get_as_location_item();
-                std::get<1>(rhs) = loc.line_number;
-                std::get<2>(rhs) = loc.column_number;
-            } else {
-                auto const& loc = other.get_as_location_tokens();
-                if (loc.lines.empty()) return false;
-                std::get<1>(rhs) = loc.lines[0].line_number;
-                std::get<2>(rhs) = loc.marker.start();
-            }
+            auto l_info = get_line_info();
+            auto r_info = other.get_line_info();
+            
+            std::tuple<std::string_view, unsigned, unsigned> lhs{ filename, l_info.first, l_info.second };
+            std::tuple<std::string_view, unsigned, unsigned> rhs{ other.filename, r_info.first, r_info.second };
             return lhs < rhs;
         }
         
@@ -205,6 +192,12 @@ namespace dark {
         [[nodiscard]] constexpr auto get_absolute_position() const noexcept -> unsigned {
             if (is_location_item()) return get_as_location_item().source_location;
             return get_as_location_tokens().get_absolute_position();
+        }
+
+        friend void swap(DiagnosticLocation& lhs, DiagnosticLocation& rhs) noexcept {
+            using std::swap;
+            swap(lhs.filename, rhs.filename);
+            swap(lhs.source, rhs.source);
         }
     };
 
@@ -282,32 +275,10 @@ namespace dark {
         core::SmallVec<SubDiagnosticMessage<DiagnosticKindType>, 0> sub_diagnostic{};
 
         constexpr BasicDiagnostic() noexcept = default;
-        BasicDiagnostic(BasicDiagnostic const& other) 
-            : base_type(other.kind)
-            , level(other.level)
-            , formatter(other.formatter)
-            , location(other.location)
-            , context(other.context)
-            , sub_diagnostic(other.sub_diagnostic)
-        {}
-        BasicDiagnostic& operator=(BasicDiagnostic const& other) {
-            BasicDiagnostic temp(other);
-            swap(*this, temp);
-            return *this;
-        }
-        constexpr BasicDiagnostic(BasicDiagnostic&& other) noexcept
-            : base_type(std::move(other.kind))
-            , level(std::move(other.level))
-            , formatter(std::move(other.formatter))
-            , location(std::move(other.location))
-            , context(std::move(other.context))
-            , sub_diagnostic(std::move(other.sub_diagnostic))
-        {}
-        constexpr BasicDiagnostic& operator=(BasicDiagnostic&& other) noexcept {
-            BasicDiagnostic temp(std::move(other));
-            swap(*this, temp);
-            return *this;
-        }
+        BasicDiagnostic(BasicDiagnostic const& other) = default;
+        BasicDiagnostic& operator=(BasicDiagnostic const& other) = default;
+        constexpr BasicDiagnostic(BasicDiagnostic&& other) noexcept = default;
+        constexpr BasicDiagnostic& operator=(BasicDiagnostic&& other) noexcept = default;
         constexpr ~BasicDiagnostic() noexcept = default;
 
         BasicDiagnostic(
@@ -332,16 +303,6 @@ namespace dark {
             , formatter(std::move(formatter))
             , location(std::move(location))
         {}
-
-        friend void swap(BasicDiagnostic& lhs, BasicDiagnostic rhs) {
-            using namespace std;
-            swap(lhs.level, rhs.level);
-            swap(lhs.kind, rhs.kind);
-            swap(lhs.formatter, rhs.formatter);
-            swap(lhs.location, rhs.location);
-            swap(lhs.context, rhs.context);
-            swap(lhs.sub_diagnostic, rhs.sub_diagnostic);
-        }
     };
 
     namespace internal {
