@@ -282,10 +282,32 @@ namespace dark {
         core::SmallVec<SubDiagnosticMessage<DiagnosticKindType>, 0> sub_diagnostic{};
 
         constexpr BasicDiagnostic() noexcept = default;
-        constexpr BasicDiagnostic(BasicDiagnostic const&) noexcept = default;
-        constexpr BasicDiagnostic& operator=(BasicDiagnostic const&) noexcept = default;
-        constexpr BasicDiagnostic(BasicDiagnostic&&) noexcept = default;
-        constexpr BasicDiagnostic& operator=(BasicDiagnostic&&) noexcept = default;
+        BasicDiagnostic(BasicDiagnostic const& other) 
+            : base_type(other.kind)
+            , level(other.level)
+            , formatter(other.formatter)
+            , location(other.location)
+            , context(other.context)
+            , sub_diagnostic(other.sub_diagnostic)
+        {}
+        BasicDiagnostic& operator=(BasicDiagnostic const& other) {
+            BasicDiagnostic temp(other);
+            swap(*this, temp);
+            return *this;
+        }
+        constexpr BasicDiagnostic(BasicDiagnostic&& other) noexcept
+            : base_type(std::move(other.kind))
+            , level(std::move(other.level))
+            , formatter(std::move(other.formatter))
+            , location(std::move(other.location))
+            , context(std::move(other.context))
+            , sub_diagnostic(std::move(other.sub_diagnostic))
+        {}
+        constexpr BasicDiagnostic& operator=(BasicDiagnostic&& other) noexcept {
+            BasicDiagnostic temp(std::move(other));
+            swap(*this, temp);
+            return *this;
+        }
         constexpr ~BasicDiagnostic() noexcept = default;
 
         BasicDiagnostic(
@@ -293,7 +315,7 @@ namespace dark {
             DiagnosticLevel level,
             core::Formatter formatter,
             DiagnosticLocation location
-        ) requires (!std::same_as<DiagnosticKindType, EmptyDiagnosticKind>)
+        )
             : base_type { .kind = std::move(kind) }
             , level(level)
             , formatter(std::move(formatter))
@@ -310,6 +332,16 @@ namespace dark {
             , formatter(std::move(formatter))
             , location(std::move(location))
         {}
+
+        friend void swap(BasicDiagnostic& lhs, BasicDiagnostic rhs) {
+            using namespace std;
+            swap(lhs.level, rhs.level);
+            swap(lhs.kind, rhs.kind);
+            swap(lhs.formatter, rhs.formatter);
+            swap(lhs.location, rhs.location);
+            swap(lhs.context, rhs.context);
+            swap(lhs.sub_diagnostic, rhs.sub_diagnostic);
+        }
     };
 
     namespace internal {
