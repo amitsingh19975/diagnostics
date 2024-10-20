@@ -2191,7 +2191,8 @@ namespace dark::internal {
             auto const find_path_helper = [&](
                 auto&& self,
                 CursorPosition start,
-                MarkerArrowDirection bias
+                MarkerArrowDirection bias,
+                std::size_t depth = 0
             ) -> void {
                 
                 if (start == dest) {
@@ -2210,7 +2211,7 @@ namespace dark::internal {
 
                 auto next_dir = get_next_dir(start, bias);
 
-                auto const& can_reach_helper = [&can_reach_dest, &intersection_weight, next_dir](CursorPosition start) {
+                auto const& can_reach_helper = [&can_reach_dest, &intersection_weight](CursorPosition start, MarkerArrowDirection next_dir) {
                     auto intersecionts = 0z;
                     auto count = [&intersecionts, &intersection_weight](CursorPosition pos) { 
                         intersecionts += intersection_weight(pos);
@@ -2219,9 +2220,9 @@ namespace dark::internal {
                     return std::make_pair(can_reach_dest(start, next_dir, count), intersecionts);
                 };
             
-                auto const iter = [&self, dest, &copy_path, start_dir, &can_reach_helper, box, next_dir, &at_visited, &min_intersection, &current_path, &current_intersection](CursorPosition start, MarkerArrowDirection dir) {
+                auto const iter = [&self, dest, &copy_path, start_dir, &can_reach_helper, box, next_dir, &at_visited, &min_intersection, &current_path, &current_intersection](CursorPosition start, MarkerArrowDirection dir, std::size_t depth) {
                     std::vector<std::tuple<CursorPosition, int, std::size_t>> options; 
-                    auto info = can_reach_helper(start);
+                    auto info = can_reach_helper(start, next_dir);
 
                     auto const get_distance = [dir, dest](CursorPosition start) {
                         switch (dir) {
@@ -2265,7 +2266,7 @@ namespace dark::internal {
 
                         temp = temp_start.go(dir, box);
                         temp_start = temp;
-                        info = can_reach_helper(temp_start);
+                        info = can_reach_helper(temp_start, next_dir);
                     }
 
                     // 2. Sort for the best candidates (Greedy Method)
@@ -2296,7 +2297,7 @@ namespace dark::internal {
                         }
                         current_path.push_back(pos);
 
-                        self(self, pos, next_dir);
+                        self(self, pos, next_dir, depth + 1);
 
                         // Restore the path
                         if (intersec < 0) {
@@ -2307,15 +2308,30 @@ namespace dark::internal {
                     }
                     
                     // 3.5. There is no options then try visit vertically.
-                    if (options.empty()) {
+                    if (options.empty() && dir != MarkerArrowDirection::Up) {
                         auto& res = at_visited(start, MarkerArrowDirection::Up);
                         if (res) return;
                         res = true;
                         self(self, start, MarkerArrowDirection::Up);
                     }
                 };
+               
                 
-                iter(start, bias);
+                if (depth == 0 && dest.col == start.col) {
+                    auto [can_reach, intersec] = can_reach_helper(start, MarkerArrowDirection::Up);
+                    if (can_reach && intersec <= 1) {
+                        if (intersec == 1) return;
+                        min_path.push_back(start);
+                        while (start.row > dest.row) {
+                            start.row -= 1;
+                            min_path.push_back(start);
+                        }
+                        min_path.push_back(dest);
+                        min_intersection = 0;
+                        return;
+                    }
+                }
+                iter(start, bias, depth);
             };
 
 
@@ -2325,7 +2341,9 @@ namespace dark::internal {
 
             if (!min_path.empty()) {
                 for (auto i = 0zu; i < min_path.size() - 1; ++i) {
-                    draw_line(min_path[i], min_path[i + 1]);
+                    auto s = min_path[i];
+                    auto e = min_path[i + 1];
+                    draw_line(s, e);
                 }
             }
 
