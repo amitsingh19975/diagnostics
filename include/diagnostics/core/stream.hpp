@@ -273,7 +273,7 @@ namespace dark {
 
     static inline Stream& out() noexcept {
         #ifdef DARK_LLVM_OS_STREAM
-            static auto stream = Stream(llvm::out());
+            static auto stream = Stream(llvm::outs());
         #else
             static auto stream = Stream(stdout);
         #endif
@@ -282,7 +282,7 @@ namespace dark {
 
     static inline Stream& err() noexcept {
         #ifdef DARK_LLVM_OS_STREAM
-            static auto stream = Stream(llvm::err());
+            static auto stream = Stream(llvm::errs());
         #else
             static auto stream = Stream(stderr);
         #endif
