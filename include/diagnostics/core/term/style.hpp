@@ -65,6 +65,7 @@ namespace dark::term {
         PaddingValues padding{};
         unsigned max_lines{ std::numeric_limits<unsigned>::max() };
         TextOverflow overflow{ TextOverflow::none };
+        bool trim_prefix{false};
 
         constexpr auto to_style() const noexcept -> Style {
             return {
