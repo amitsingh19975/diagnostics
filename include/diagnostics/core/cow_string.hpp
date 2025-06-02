@@ -29,10 +29,25 @@ namespace dark::core {
         struct BorrowedTag{};
 
         constexpr CowString() noexcept = default;
-        CowString(CowString const&) = default;
-        CowString(CowString &&) noexcept = default;
-        CowString& operator=(CowString const&) = default;
-        CowString& operator=(CowString &&) noexcept = default;
+        CowString(CowString const& other)
+            : m_data(other.to_owned())
+        {}
+        CowString(CowString&& other) noexcept {
+            if (m_data.index() == borrowed_index) m_data = other.to_borrowed();
+            else m_data = std::move(std::get<owned_index>(other.m_data));
+        }
+        CowString& operator=(CowString const& other) {
+            if (this == &other) return *this;
+            auto tmp = CowString(other);
+            swap(*this, tmp);
+            return *this;
+        }
+        CowString& operator=(CowString&& other) noexcept {
+            if (this == &other) return *this;
+            auto tmp = CowString(std::move(other));
+            swap(*this, tmp);
+            return *this;
+        }
         ~CowString() = default;
 
         explicit CowString(char const* s, OwnedTag = {})
@@ -51,7 +66,7 @@ namespace dark::core {
             : m_data(std::move(s))
         {}
 
-        explicit constexpr CowString(std::string_view s, BorrowedTag = {}) noexcept
+        constexpr CowString(std::string_view s, BorrowedTag = {}) noexcept
             : m_data(s)
         {}
 
@@ -112,6 +127,11 @@ namespace dark::core {
 
         constexpr operator std::string_view() const noexcept {
             return to_borrowed();
+        }
+
+        constexpr friend auto swap(CowString& lhs, CowString& rhs) noexcept -> void {
+            using std::swap;
+            swap(lhs.m_data, rhs.m_data);
         }
     private:
         std::variant<std::string_view, std::string> m_data { std::string_view{} };

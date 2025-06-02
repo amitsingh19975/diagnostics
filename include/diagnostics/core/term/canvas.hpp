@@ -1,7 +1,8 @@
-#ifndef AMT_DARK_DIAGNOSTIC_CORE_CANVAS_HPP
-#define AMT_DARK_DIAGNOSTIC_CORE_CANVAS_HPP
+#ifndef AMT_DARK_DIAGNOSTIC_CORE_TERM_CANVAS_HPP
+#define AMT_DARK_DIAGNOSTIC_CORE_TERM_CANVAS_HPP
 
 #include "../small_vec.hpp"
+#include "annotated_string.hpp"
 #include "terminal.hpp"
 #include "../utf8.hpp"
 #include "style.hpp"
@@ -9,6 +10,7 @@
 #include <cassert>
 #include <cctype>
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -288,15 +290,15 @@ namespace dark::term {
 
                 for (auto j = 0ul; j < new_cols; ++j) {
                     auto const& cell = self(i, j);
-                    if (cell.empty()) {
-                        term.write(" ");
-                        continue;
-                    }
                     term.change_color(
                         cell.style.text_color,
                         cell.style.bg_color,
                         cell.style.term_style()
                     );
+                    if (cell.empty()) {
+                        term.write(" ");
+                        continue;
+                    }
                     term.write(cell.to_string());
                 }
                 term.write("\n");
@@ -725,12 +727,30 @@ namespace dark::term {
             };
         }
 
-        constexpr auto draw_text(
+        struct TextRenderResult {
+            BoundingBox bbox;
+            std::size_t left{};
+        };
+
+        auto draw_text(
             std::string_view text,
             dsize_t x,
             dsize_t y,
             TextStyle style = {}
-        ) noexcept -> BoundingBox {
+        ) noexcept -> TextRenderResult {
+            auto as = AnnotatedString{};
+            as.push(text);
+            return draw_text(std::move(as), x, y, style);
+        }
+
+        constexpr auto draw_text(
+            AnnotatedString as,
+            dsize_t x,
+            dsize_t y,
+            TextStyle style = {}
+        ) noexcept -> TextRenderResult {
+            as.build_indices();
+
             auto padding = style.padding;
             auto max_space = std::min<size_type>(
                 style.max_width,
@@ -741,105 +761,63 @@ namespace dark::term {
             max_space = std::max<size_type>(padding.horizontal(), max_space) - padding.horizontal();
 
             auto bbox = BoundingBox(x, y, 0, 0);
-            if (max_space == 0) return bbox;
+            if (max_space == 0) return { bbox, as.size() };
 
             x += padding.left;
             y += padding.top;
+
             auto max_x = x;
 
             if (!style.word_wrap) {
-                auto size = std::min(text.size(), max_space);
+                auto size = std::min(as.size(), max_space);
                 style.max_lines = 1;
-                draw_text_helper(
-                    text,
+                auto [consumed, bottom_padding] = draw_text_helper(
+                    as,
                     x,
                     y,
                     size,
                     style
                 );
 
-                y += padding.bottom + 1;
+                y += std::max(bottom_padding, padding.bottom) + 1;
 
-                return BoundingBox(
-                    bbox.x,
-                    bbox.y,
-                    std::min(x, static_cast<dsize_t>(cols() - 1)),
-                    y
-                );
+                return {
+                    .bbox = BoundingBox(
+                        bbox.x,
+                        bbox.y,
+                        std::min(x, static_cast<dsize_t>(cols() - 1)),
+                        y
+                    ),
+                    .left = as.size() - consumed
+                };
             }
             auto current_line = 0u;
-            while (!text.empty()) {
+            while (!as.empty()) {
                 current_line += 1;
 
                 max_x = std::max(max_x, x);
                 x = bbox.x + padding.left;
 
-                auto old_size = text.size();
-                auto sz = std::min({ max_space, text.size() });
-
-                if (
-                    style.break_whitespace &&
-                    (current_line != style.max_lines || style.overflow == TextOverflow::none)
-                ) {
-                    auto min_len = 0ul;
-                    auto curren_len = 0ul;
-                    auto tmp_x = 0u;
-                    auto found_newline{false};
-
-                    for (auto i = 0ul; i < text.size() && tmp_x < sz; tmp_x += 1) {
-                        auto c = text[i];
-                        auto len = core::utf8::get_length(text[i]);
-                        i += len;
-
-                        curren_len += len;
-                        if (std::isspace(c)) {
-                            min_len = curren_len;
-                            if (c == '\t') tmp_x += tab_width - 1;
-                            if (c == '\n') {
-                                curren_len += 1;
-                                min_len += 1;
-                                found_newline = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    text = draw_text_helper(
-                        text,
-                        x, y,
-                        std::max(min_len, 1ul) - 1,
-                        style,
-                        current_line
-                    );
-
-                    if (!found_newline) {
-                        auto max_space_can_be_consumed = curren_len - min_len;
-                        auto count = 0ul;
-                        for (auto i = 0ul; i < max_space_can_be_consumed && i < text.size(); ++i) {
-                            if (text[i] != ' ') break;
-                            ++count;
-                        }
-                        text = text.substr(count);
-                    }
-                } else {
-                    text = draw_text_helper(
-                        text,
-                        x, y,
-                        sz,
-                        style,
-                        current_line
-                    );
-                }
+                auto old_size = as.size();
+                auto [consumed, bottom_padding] = draw_text_helper(
+                    as,
+                    x, y,
+                    max_space,
+                    style,
+                    current_line
+                );
+                as.shift(consumed);
+                padding.bottom = std::max(padding.bottom, bottom_padding);
 
                 // Ensures no infinite loop
-                if (old_size == text.size()) break;
+                if (old_size == as.size()) break;
                 y += 1;
                 if (current_line == style.max_lines) break;
             }
             x = std::min(std::max(max_x, x) + padding.right, static_cast<dsize_t>(cols() - 1));
             y += padding.bottom;
 
-            return BoundingBox(bbox.x, bbox.y, x, y);
+            return { BoundingBox(bbox.x, bbox.y, x, y), as.size() };
         }
 
         constexpr auto draw_boxed_text(
@@ -849,14 +827,30 @@ namespace dark::term {
             TextStyle style = {},
             BoxCharSet normal_set = char_set::box::rounded,
             BoxCharSet bold_set = char_set::box::rounded_bold
-        ) noexcept -> BoundingBox {
+        ) noexcept -> TextRenderResult {
+            auto as = AnnotatedString();
+            as.push(text);
+            return draw_boxed_text(as, x, y, style, normal_set, bold_set);
+        }
+
+        constexpr auto draw_boxed_text(
+            AnnotatedString as,
+            dsize_t x,
+            dsize_t y,
+            TextStyle style = {},
+            BoxCharSet normal_set = char_set::box::rounded,
+            BoxCharSet bold_set = char_set::box::rounded_bold
+        ) noexcept -> TextRenderResult {
             style.max_width = std::min(dsize_t(cols() - 2), style.max_width);
-            auto bbox = draw_text(
-                text,
+            auto [bbox, left] = draw_text(
+                std::move(as),
                 x + 1, y + 1,
                 style
             );
-            return draw_box(x, y, bbox.width, bbox.height, style.to_style(), normal_set, bold_set);
+            return {
+                draw_box(x, y, bbox.width, bbox.height, style.to_style(), normal_set, bold_set),
+                left
+            };
         }
 
         constexpr auto draw_marked_text(
@@ -866,12 +860,12 @@ namespace dark::term {
             dsize_t y,
             TextStyle style = {},
             Terminal::Color marker_color = Terminal::SAVEDCOLOR
-        ) noexcept -> BoundingBox {
+        ) noexcept -> TextRenderResult {
             if (marker_color == Terminal::SAVEDCOLOR) {
                 marker_color = style.text_color;
             }
 
-            auto bbox = draw_text(text, x, y);
+            auto [bbox, left] = draw_text(text, x, y);
             auto tmp = core::utf8::PackedUTF8(marker);
             style.text_color = marker_color;
 
@@ -887,103 +881,191 @@ namespace dark::term {
                 tmp_x += kb;
             }
             bbox.height += 1;
-            return bbox;
+            return { bbox, left };
         }
     private:
         constexpr auto draw_text_helper(
-            std::string_view text,
+            AnnotatedString& as,
             dsize_t& x,
             dsize_t y,
             size_type size,
             TextStyle style = {},
-            dsize_t current_line = 1
-        ) noexcept -> std::string_view {
+            dsize_t current_line = 1,
+            size_type max_as_size = std::numeric_limits<size_type>::max()
+        ) noexcept -> std::pair<std::size_t, unsigned> {
             auto tmp_x = x;
             auto total_consumed = 0ul;
-            std::string_view temp_buff[max_cols] = {};
+            std::pair<std::string_view, SpanStyle> temp_buff[max_cols + 5] = {};
             auto start_x = x;
-            auto const could_overflow = (
-                current_line >= style.max_lines && text.size() > total_consumed
-            );
-            auto utext = core::utf8::PackedUTF8(text);
+            unsigned bottom_padding = 0u;
+            unsigned top_padding = 0u;
+            auto text_size = std::min(as.size(), max_as_size);
 
-            auto helper = [&total_consumed, &utext, &tmp_x, x, size, &temp_buff](
+            auto helper = [
+                &total_consumed,
+                &as, &tmp_x, x,
+                size, &temp_buff,
+                &bottom_padding,
+                &top_padding,
+                current_line,
+                style
+            ](
                 size_type start, size_type end
-            ) {
-                for (auto index = start; (tmp_x < size + x) && (index < end); ++index) {
-                    auto ch = utext[index];
-                    total_consumed += ch.size();
+            ) { 
+                struct State {
+                    size_type start;
+                    size_type total_consumed;
+                    unsigned x;
+                    unsigned bottom_padding;
+                    unsigned top_padding;
+                    SpanStyle word_style;
+                };
+                auto stored_state = State {
+                    .start = start,
+                    .total_consumed = total_consumed,
+                    .x = tmp_x,
+                    .bottom_padding = bottom_padding,
+                    .top_padding = top_padding,
+                    .word_style = {}
+                };
+
+                if (style.trim_prefix) {
+                    for (; start < end; ++start, ++total_consumed) {
+                        auto [ch, sp_style] = as[start];
+                        if (sp_style.padding) {
+                            auto st = sp_style.padding.value_or(PaddingValues());
+                            st.left = 0;
+                            as.update_padding(start, st);
+                        }
+                        if (!std::isspace(ch[0])) break;
+                    }
+                }
+
+                for (; start < end && (tmp_x < size + x); ++start, ++total_consumed) {
+                    auto [ch, span_style] = as[start];
+                    if (as.is_word_end(start)) {
+                        stored_state = State {
+                            .start = start,
+                            .total_consumed = total_consumed,
+                            .x = tmp_x,
+                            .bottom_padding = bottom_padding,
+                            .top_padding = top_padding,
+                            .word_style = {}
+                        };
+                    }
+                    auto padding = span_style.padding.value_or(PaddingValues());
+                    tmp_x += padding.left;
+
+                    auto np = padding;
+                    np.left = 0;
+                    as.update_padding(start, np);
+
+                    if (tmp_x >= size + x) {
+                        break;
+                    }
+                    bottom_padding = std::max(
+                        padding.bottom,
+                        bottom_padding
+                    );
+                    top_padding = std::max(
+                        padding.top,
+                        top_padding
+                    );
 
                     if (ch[0] == '\n') {
+                        ++total_consumed;
                         break;
                     } else if (ch[0] == '\t') {
                         for (auto i = 0ul; i < tab_width; ++i) {
-                            temp_buff[tmp_x++] = " ";
+                            temp_buff[tmp_x++] = { " ", span_style };
                         }
                         continue;
                     }
-                    temp_buff[tmp_x++] = ch;
+                    temp_buff[tmp_x++] = { ch, span_style };
+                    tmp_x += padding.right;
+                    np.right = 0;
+                    as.update_padding(start, np);
+                }
+
+                if (style.break_whitespace && !as.is_word_end(start)) {
+                    start = stored_state.start;
+                    total_consumed = stored_state.total_consumed;
+                    tmp_x = stored_state.x;
+                    bottom_padding = stored_state.bottom_padding;
+                    top_padding = stored_state.top_padding;
+                    for (auto i = tmp_x; i < size + x; ++i) temp_buff[i] = {};
+                }
+
+                if (current_line == 1) {
+                    top_padding = std::max(top_padding, style.padding.top) - style.padding.top;
+                }
+
+                if (current_line == style.max_lines || (as.size() - total_consumed) == 0) {
+                    bottom_padding = std::max(bottom_padding, style.padding.bottom);
                 }
             };
 
-            if (!could_overflow) {
-                helper(0, utext.size());
+            if (current_line < style.max_lines) {
+                helper(0, text_size);
             } else {
                 switch (style.overflow) {
                 case TextOverflow::none: {
-                    helper(0, utext.size());
+                    helper(0, text_size);
                 } break;
                 case TextOverflow::ellipsis: {
-                    helper(0, utext.size());
+                    helper(0, text_size);
 
                     auto const buff_size = (tmp_x - start_x);
                     auto dots = std::min(buff_size, 3u);
                     for (auto i = 0ul; i < dots; ++i) {
-                        temp_buff[tmp_x - 1 - i] = ".";
+                        temp_buff[tmp_x - 1 - i] = { ".", {} };
                     }
                 } break;
                 case TextOverflow::middle_ellipsis: {
-                    auto total_len = utext.size();
-                    auto middle = total_len / 2;
+                    auto text_len = std::min(text_size, max_cols);
+                    auto middle = text_len / 2;
                     auto mid_col = size / 2;
                     auto s0 = 0ul;
                     auto e0 = std::min(std::max(middle, 2ul) - 2, mid_col);
-                    auto s1 = std::max(mid_col, total_len) - mid_col - 2;
-                    auto e1 = total_len;
+                    auto s1 = std::max(mid_col, text_len) - mid_col - 2;
+                    auto e1 = text_len;
                     helper(s0, e0);
                     tmp_x += 5;
                     helper(s1, e1);
 
-                    temp_buff[e0] = " ";
-                    temp_buff[e0 + 1] = ".";
-                    temp_buff[e0 + 2] = ".";
-                    temp_buff[e0 + 3] = ".";
-                    temp_buff[s1] = " ";
+                    temp_buff[e0] = { " ", {} };
+                    temp_buff[e0 + 1] = { ".", {} };
+                    temp_buff[e0 + 2] = { ".", {} };
+                    temp_buff[e0 + 3] = { ".", {} };
+                    temp_buff[s1] = { " ", {} };
                 } break;
                 case TextOverflow::start_ellipsis: {
-                    auto total_len = utext.size();
+                    auto total_len = text_size;
                     auto mid_col = std::max(size, size_type{3}) - 3;
                     auto s0 = std::max(mid_col, total_len) - mid_col;
                     auto e0 = total_len;
-                    temp_buff[tmp_x++] = ".";
-                    temp_buff[tmp_x++] = ".";
-                    temp_buff[tmp_x++] = ".";
+                    temp_buff[tmp_x++] = { ".", {} };
+                    temp_buff[tmp_x++] = { ".", {} };
+                    temp_buff[tmp_x++] = { ".", {} };
                     helper(s0, e0);
                 } break;
                 }
             }
 
+            y += top_padding;
+
             for (; start_x < tmp_x; ++start_x) {
+                auto [ch, st] = temp_buff[start_x];
                 draw_pixel(
                     start_x,
                     y,
-                    temp_buff[start_x],
-                    style.to_style()
+                    ch,
+                    st.to_style(style)
                 );
             }
 
             x = tmp_x;
-            return text.substr(total_consumed);
+            return { total_consumed, bottom_padding + top_padding };
         }
 
     private:
@@ -995,4 +1077,4 @@ namespace dark::term {
 
 } // namespace dark::term
 
-#endif // AMT_DARK_DIAGNOSTIC_CORE_CANVAS_HPP
+#endif // AMT_DARK_DIAGNOSTIC_CORE_TERM_CANVAS_HPP

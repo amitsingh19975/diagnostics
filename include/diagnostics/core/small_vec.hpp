@@ -296,6 +296,28 @@ namespace dark::core {
             : m_data(array_t{})
         {}
 
+        SmallVec(SmallVec const& other) {
+            if (is_small()) m_data = std::get<array_index>(other.m_data);
+            else m_data = std::get<vec_index>(other.m_data);
+        }
+        SmallVec(SmallVec&& other) noexcept {
+            if (is_small()) m_data = std::move(std::get<array_index>(other.m_data));
+            else m_data = std::move(std::get<vec_index>(other.m_data));
+        }
+        SmallVec& operator=(SmallVec const& other) {
+            if (this == &other) return *this;
+            auto tmp = SmallVec(other);
+            swap(tmp, *this);
+            return *this;
+        }
+        SmallVec& operator=(SmallVec&& other) noexcept {
+            if (this == &other) return *this;
+            auto tmp = SmallVec(std::move(other));
+            swap(tmp, *this);
+            return *this;
+        }
+        ~SmallVec() = default;
+
         SmallVec(std::initializer_list<T> li) {
             if (li.size() > Cap) m_data = vec_t(li);
             else m_data = array_t(li);
@@ -331,7 +353,7 @@ namespace dark::core {
                 } else {
                     auto v = vec_t();
                     v.reserve(size() + 1);
-                    std::move(tmp.begin(), tmp.end(), v.begin());
+                    std::move(tmp.begin(), tmp.end(), std::back_inserter(v));
                     v.push_back(std::forward<U>(val));
                     m_data = std::move(v);
                 }
@@ -363,7 +385,7 @@ namespace dark::core {
                 } else {
                     auto v = vec_t{};
                     v.reserve(size() + 1);
-                    std::move(tmp.begin(), tmp.end(), v.begin());
+                    std::move(tmp.begin(), tmp.end(), std::back_inserter(v));
                     v.emplace_back(std::forward<Args>(args)...);
                     m_data = std::move(v);
                 }

@@ -3,7 +3,10 @@
 
 #include "../small_vec.hpp"
 #include "../cow_string.hpp"
+#include "../utf8.hpp"
 #include "style.hpp"
+#include <cctype>
+#include <cstdint>
 
 namespace dark::term {
 
@@ -47,6 +50,74 @@ namespace dark::term {
         auto with_style(SpanStyle style) -> Builder {
             return Builder(&strings, style);
         }
+
+        constexpr auto size() const noexcept -> std::size_t {
+            return m_cached_index.size() - m_offset;
+        }
+
+        auto build_indices() const -> void {
+            m_offset = 0;
+            for (auto i = 0ul; i < strings.size(); ++i) {
+                auto const& s = strings[i].first.to_borrowed();
+                for (auto j = 0ul; j < s.size();) {
+                    auto len = core::utf8::get_length(s[j]);
+                    m_cached_index.emplace_back(i, j, len);
+                    j += len;
+                }
+            }
+        }
+        constexpr auto operator[](std::size_t k) noexcept -> std::pair<std::string_view, SpanStyle> {
+            auto idx = m_offset + k;
+            assert(idx < m_cached_index.size());
+            auto [s_idx, c_idx, len] = m_cached_index[idx];
+            auto const& [text, style] = strings[s_idx];
+            auto ns = style;
+            if (style.padding) {
+                if (c_idx != 0) {
+                    ns.padding->left = 0;
+                    if (c_idx + len < text.size()) {
+                        ns.padding->right = 0;
+                    }
+                } else {
+                    ns.padding->right = 0;
+                }
+            }
+            return { text.to_borrowed().substr(c_idx, len), ns };
+        }
+
+        constexpr auto operator[](std::size_t k) const noexcept -> std::pair<std::string_view, SpanStyle> {
+            auto* self = const_cast<AnnotatedString*>(this); 
+            return self->operator[](k);
+        }
+
+        constexpr auto shift(std::size_t offset) const noexcept -> void {
+            m_offset = std::min(m_cached_index.size(), m_offset + offset);
+        }
+
+        constexpr auto empty() const noexcept -> bool {
+            return size() == 0;
+        }
+
+        constexpr auto update_padding(std::size_t index, PaddingValues p) noexcept {
+            auto idx = m_offset + index;
+            assert(idx < m_cached_index.size());
+            auto [s_idx, c_idx, len] = m_cached_index[idx];
+            auto& style = strings[s_idx].second;
+            style.padding = p;
+        }
+
+        constexpr auto is_word_end(std::size_t k) const noexcept -> bool {
+            auto idx = m_offset + k;
+            if (idx >= m_cached_index.size()) return true;
+            auto [s_idx, c_idx, len] = m_cached_index[idx];
+            auto const& text = strings[s_idx].first.to_borrowed();
+            if (std::isspace(text[c_idx])) return true;
+            return c_idx == text.size();
+        }
+    private:
+        // (string index, char index, len)
+        mutable core::SmallVec<std::tuple<std::size_t, std::size_t, std::uint8_t>, 64> m_cached_index{};
+        mutable std::size_t m_offset{};
     };
 
 } // namespace dark::term
