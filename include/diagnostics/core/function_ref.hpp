@@ -1,5 +1,5 @@
-#ifndef DARK_DIAGNOSTICS_FUNCTION_REF_HPP
-#define DARK_DIAGNOSTICS_FUNCTION_REF_HPP
+#ifndef AMT_DARK_DIAGNOSTICS_FUNCTION_REF_HPP
+#define AMT_DARK_DIAGNOSTICS_FUNCTION_REF_HPP
 
 #include <type_traits>
 #include <utility>
@@ -50,4 +50,4 @@ namespace dark::core {
 
 } // namespace dark::core
 
-#endif // DARK_DIAGNOSTICS_FUNCTION_REF_HPP
+#endif // AMT_DARK_DIAGNOSTICS_FUNCTION_REF_HPP
