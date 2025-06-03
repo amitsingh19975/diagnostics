@@ -29,7 +29,7 @@ namespace dark {
 
         auto flush() -> void override {
             std::stable_sort(m_diagnostics.begin(), m_diagnostics.end(), [](Diagnostic const& l, Diagnostic const& r) {
-                return l.location.line_info() < r.location.line_info();
+                return l.location < r.location;
             });
 
             for (auto& diag: m_diagnostics) m_consumer->consume(std::move(diag));

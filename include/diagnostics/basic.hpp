@@ -11,6 +11,7 @@
 #include <concepts>
 #include <cstdint>
 #include <format>
+#include <tuple>
 #include <type_traits>
 
 namespace dark {
@@ -193,6 +194,14 @@ namespace dark {
             using std::swap;
             swap(lhs.filename, rhs.filename);
             swap(lhs.source, rhs.source);
+        }
+
+        constexpr auto operator<(DiagnosticLocation const& other) const noexcept -> bool {
+            auto l_info = line_info();
+            auto r_info = other.line_info();
+            auto lhs = std::make_tuple(filename, l_info.first, l_info.second);
+            auto rhs = std::make_tuple(other.filename, r_info.first, r_info.second);
+            return lhs < rhs;
         }
     };
 
