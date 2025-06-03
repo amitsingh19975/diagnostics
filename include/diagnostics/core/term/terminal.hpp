@@ -60,6 +60,19 @@ namespace dark {
             , m_color_enabled(supports_color(handle, mode))
         {}
 
+        constexpr Terminal(Terminal const&) noexcept = default;
+        constexpr Terminal(Terminal &&) noexcept = default;
+        constexpr Terminal& operator=(Terminal const&) noexcept = default;
+        constexpr Terminal& operator=(Terminal &&) noexcept = default;
+
+        constexpr auto get_handle() noexcept -> FILE* {
+            return m_handle;
+        }
+
+        constexpr auto get_native_handle() noexcept -> core::term::detail::native_handle_t {
+            return core::term::detail::get_native_handle(get_handle());
+        }
+
         auto write(std::string_view str) -> Terminal& {
             std::print(m_handle, "{}", str);
             return *this;
