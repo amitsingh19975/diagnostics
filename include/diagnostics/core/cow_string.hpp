@@ -125,6 +125,14 @@ namespace dark::core {
             return std::string(to_borrowed());
         }
 
+        auto conume() -> std::string {
+            if (is_owned()) {
+                return std::move(std::get<owned_index>(m_data));
+            } else {
+                return std::string(std::get<borrowed_index>(m_data));
+            }
+        }
+
         constexpr operator std::string_view() const noexcept {
             return to_borrowed();
         }
