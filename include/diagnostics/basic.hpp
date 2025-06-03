@@ -2,11 +2,16 @@
 #define AMT_DARK_DIAGNOSTICS_BASIC_HPP
 
 #include "core/config.hpp"
-#include "diagnostics/core/small_vec.hpp"
+#include "core/cow_string.hpp"
+#include "core/format.hpp"
+#include "core/format_any.hpp"
+#include "core/small_vec.hpp"
 #include "span.hpp"
 #include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <format>
+#include <type_traits>
 
 namespace dark {
 
@@ -41,7 +46,7 @@ namespace dark {
     }
 
     enum class TokenColor {
-        None = 0,
+        Default = 0,
         Black,
         Red,
         Green,
@@ -52,45 +57,30 @@ namespace dark {
         White,
     };
 
-    struct DiagnosticSourceLocation {
-        std::string_view text;
-        dsize_t len{};
-        dsize_t line_number{}; // 1-based; 0 is invalid
-        dsize_t column_number{}; // 1-based; 0 is invalid
-        dsize_t absolute_line_start_location{}; // position from the start of the source
-
-        constexpr auto col() const noexcept -> dsize_t {
-            return std::max(column_number, dsize_t{1}) - 1;
-        }
-
-        // Absoulte span; starting from the source text
-        constexpr auto span() const noexcept -> Span {
-            return Span::from_size(absolute_line_start_location + col(), len);
-        }
-
-        constexpr auto empty() const noexcept -> bool {
-            return len == 0;
-        }
-    };
-
     struct DiagnosticTokenInfo {
-        std::string_view token;
-        dsize_t len{};
+        core::CowString text;
         dsize_t column_number{}; // 1-based; 0 is invalid
-        TokenColor color{ TokenColor::None };
+        Span marker{};
+        TokenColor text_color{ TokenColor::Default };
+        TokenColor bg_color{ TokenColor::Default };
         bool bold{false};
 
         constexpr auto col() const noexcept -> dsize_t {
-            return std::max(column_number, dsize_t{1}) - 1;
+            return std::max(column_number + marker.start(), dsize_t{1}) - 1;
         }
 
         // Absoulte span; starting from the source text
         constexpr auto span(dsize_t line_start) const noexcept -> Span {
-            return Span::from_size(line_start + col(), len);
+            return Span::from_size(line_start + col(), static_cast<dsize_t>(text.size()));
+        }
+
+        // Absoulte span; starting from the source text
+        constexpr auto rel_span() const noexcept -> Span {
+            return Span::from_size(col(), static_cast<dsize_t>(text.size()));
         }
 
         constexpr auto empty() const noexcept -> bool {
-            return len == 0;
+            return text.empty();
         }
     };
 
@@ -99,6 +89,7 @@ namespace dark {
         dsize_t line_number{}; // 1-based; 0 is invalid
         dsize_t absolute_line_start_location{}; // position from the start of the source
 
+        // Absoulte span; starting from the source text
         constexpr auto span() const noexcept -> Span {
             if (empty()) return {};
             auto span = Span();
@@ -111,15 +102,154 @@ namespace dark {
             return span;
         }
 
+        constexpr auto rel_span() const noexcept -> Span {
+            if (empty()) return {};
+            auto span = Span();
+
+            for (auto i = 0ul; i < tokens.size(); ++i) {
+                auto token_span = tokens[i].rel_span();
+                span = span.force_merge(token_span);
+            }
+
+            return span;
+        }
+
         constexpr auto span(std::size_t index) const noexcept -> Span {
             assert(index < tokens.size());
             return tokens[index].span(absolute_line_start_location);
         }
 
+        constexpr auto marker(std::size_t index) const noexcept -> Span {
+            assert(index < tokens.size());
+            return tokens[index].marker;
+        }
+
         constexpr auto empty() const noexcept -> bool { return tokens.empty(); }
+
+        friend void swap(DiagnosticLineTokens& lhs, DiagnosticLineTokens& rhs) {
+            using std::swap;
+            swap(lhs.tokens, rhs.tokens);
+            swap(lhs.line_number, rhs.line_number);
+            swap(lhs.absolute_line_start_location, rhs.absolute_line_start_location);
+        }
     };
+
+    struct DiagnosticSourceLocationTokens {
+        core::SmallVec<DiagnosticLineTokens> lines;
+
+        constexpr auto span() const noexcept -> Span {
+            if (empty()) return {};
+            auto span = Span();
+
+            for (auto i = 0ul; i < lines.size(); ++i) {
+                auto line_span = lines[i].span();
+                span = span.force_merge(line_span);
+            }
+
+            return span;
+        }
+
+        constexpr auto rel_span() const noexcept -> Span {
+            if (empty()) return {};
+            auto span = Span();
+
+            for (auto i = 0ul; i < lines.size(); ++i) {
+                auto line_span = lines[i].rel_span();
+                span = span.force_merge(line_span);
+            }
+
+            return span;
+        }
+
+        constexpr auto absolute_line_start() const noexcept -> dsize_t {
+            if (empty()) return 0;
+            return lines[0].absolute_line_start_location;
+        }
+
+        constexpr auto empty() const noexcept -> bool { return lines.empty(); }
+
+        friend void swap(DiagnosticSourceLocationTokens& lhs, DiagnosticSourceLocationTokens& rhs) {
+            using std::swap;
+            swap(lhs.lines, rhs.lines);
+        }
+    };
+
+    struct DiagnosticLocation {
+        std::string_view filename{};
+        DiagnosticSourceLocationTokens source;
+
+        constexpr auto line_info() const noexcept -> std::pair<dsize_t, dsize_t> {
+            for (auto const& line: source.lines) {
+                for (auto const& tok: line.tokens) {
+                    if (tok.marker.empty()) continue;
+                    auto col = tok.col();
+                    return { line.line_number, col == 0 ? 0 : (col + 1) };
+                }
+            }
+            return { 0, 0 };
+        }
+
+        friend void swap(DiagnosticLocation& lhs, DiagnosticLocation rhs) {
+            using std::swap;
+            swap(lhs.filename, rhs.filename);
+            swap(lhs.source, rhs.source);
+        }
+    };
+
+    namespace detail {
+
+        #ifdef DARK_DIAGNOSTIC_KIND_TYPE
+        using diagnostic_kind_t = DARK_DIAGNOSTIC_KIND_TYPE;
+        #else
+        using diagnostic_kind_t = std::size_t;
+        #endif
+
+        #ifdef DARK_DIAGNOSTIC_KIND_DEFAULT_VALUE
+        static constexpr diagnostic_kind_t diagnostic_default_kind = DARK_DIAGNOSTIC_KIND_DEFAULT_VALUE;
+        #else
+        static constexpr diagnostic_kind_t diagnostic_default_kind = diagnostic_kind_t{};
+        #endif
+
+        static_assert(
+            (std::integral<diagnostic_kind_t> || std::is_enum_v<diagnostic_kind_t>),
+            "Diagnostic kind can only be either integral or enum type"
+        );
+
+
+    } // namespace detail
+
+    struct DiagnosticMessage {
+        core::BasicFormatter message{};
+        core::BasicFormatter insertion_text{};
+        core::SmallVec<Span, 1> spans{};
+        DiagnosticLevel level{};
+        DiagnosticOperationKind op{};
+    };
+
+    struct Diagnostic {
+        core::BasicFormatter message{};
+        DiagnosticLevel level{};
+        DiagnosticLocation location{};
+        detail::diagnostic_kind_t kind{detail::diagnostic_default_kind};
+        core::SmallVec<DiagnosticMessage, 2> annotations{};
+        /*core::SmallVec<Diagnostic, 0> sub_diagnostics{};*/
+    };
+
+    namespace internal {
+        template <core::IsFormattable... Args>
+        struct DiagnosticBase {
+            detail::diagnostic_kind_t kind{ detail::diagnostic_default_kind };
+            core::format_string<Args...> fmt;
+
+            [[nodiscard]] auto apply(Args... args) const -> core::BasicFormatter {
+                return core::BasicFormatter(fmt, std::forward<Args>(args)...);
+            }
+        };
+    } // namespace internal
 } // namespace dark
 
+
+#define dark_make_diagnostic(DiagnosticKind, Format, ...) dark::internal::DiagnosticBase<__VA_ARGS__>((DiagnosticKind), (Format))
 
 template <>
 struct std::formatter<dark::DiagnosticLevel> {
@@ -153,4 +283,79 @@ struct std::formatter<dark::DiagnosticOperationKind> {
     }
 };
 
+template <>
+struct std::formatter<dark::TokenColor> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::TokenColor const& c, auto& ctx) const {
+        auto name = "";
+        switch (c) {
+        case dark::TokenColor::Default: name = "Default"; break;
+        case dark::TokenColor::Black: name = "Black"; break;
+        case dark::TokenColor::Red: name = "Red"; break;
+        case dark::TokenColor::Green: name = "Green"; break;
+        case dark::TokenColor::Yellow: name = "Yellow"; break;
+        case dark::TokenColor::Blue: name = "Blue"; break;
+        case dark::TokenColor::Magenta: name = "Magenta"; break;
+        case dark::TokenColor::Cyan: name = "Cyan"; break;
+        case dark::TokenColor::White: name = "White"; break;
+        }
+        return std::format_to(ctx.out(), "{}", name);
+    }
+};
+
+template <>
+struct std::formatter<dark::DiagnosticTokenInfo> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::DiagnosticTokenInfo const& l, auto& ctx) const {
+        return std::format_to(ctx.out(), "DiagnosticTokenInfo(text='{}', marker={}, column_number={}, text_color={}, bg_color={}, bold={})", l.text.to_borrowed(), l.marker, l.column_number, l.text_color, l.bg_color, l.bold);
+    }
+};
+
+template <>
+struct std::formatter<dark::DiagnosticLineTokens> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::DiagnosticLineTokens const& l, auto& ctx) const {
+        return std::format_to(ctx.out(), "DiagnosticLineTokens(line_number={}, line_start={}, tokens={})", l.line_number, l.absolute_line_start_location, std::span(l.tokens));
+    }
+};
+
+template <>
+struct std::formatter<dark::DiagnosticSourceLocationTokens> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::DiagnosticSourceLocationTokens const& l, auto& ctx) const {
+        return std::format_to(ctx.out(), "DiagnosticSourceTokensLocation(lines={})", std::span(l.lines));
+    }
+};
 #endif // AMT_DARK_DIAGNOSTICS_BASIC_HPP
