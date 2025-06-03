@@ -1,6 +1,7 @@
 #ifndef AMT_DARK_DIAGNOSTIC_CORE_FORMAT_HPP
 #define AMT_DARK_DIAGNOSTIC_CORE_FORMAT_HPP
 
+#include "cow_string.hpp"
 #include "small_vec.hpp"
 #include "format_any.hpp"
 #include <format>
@@ -8,10 +9,15 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace dark {
     namespace core {
+        template <typename... Args>
+        using format_string = std::format_string<
+            std::conditional_t<!std::same_as<std::remove_cvref_t<Args>, FormatterAnyArg>, FormatterAnyArg, Args>...
+        >;
         /*
          * @brief Reasons for creating custom format class that holds args.
          *        1. `std::make_format_args` cannot be stored during runtime and will cause
@@ -60,8 +66,8 @@ namespace dark {
             ~BasicFormatter() = default;
 
             template <IsFormattable... Args>
-            BasicFormatter(std::string format, Args&&... args)
-                : m_format(std::move(format))
+            BasicFormatter(format_string<Args...> fmt, Args&&... args) 
+                : m_format(std::move(fmt.get()))
             {
                 m_args.reserve(sizeof...(args));
                 (m_args.emplace_back(std::move(args)),...);
@@ -77,9 +83,22 @@ namespace dark {
                 };
             }
 
-            auto format() const -> std::string {
-                if (!m_apply) return "";
-                return m_apply(m_format, std::span(m_args));
+            BasicFormatter(CowString format)
+                : m_format(std::move(format))
+            {}
+
+            constexpr auto empty() const noexcept -> bool {
+                return m_format.empty();
+            }
+
+            constexpr operator bool() const noexcept {
+                return (m_apply != nullptr) && !empty();
+            }
+
+            auto format() const -> CowString {
+                if (empty()) return "";
+                if (!m_apply) return CowString(m_format.to_borrowed());
+                return CowString(m_apply(m_format, std::span(m_args)));
             }
 
             constexpr friend auto swap(BasicFormatter& lhs, BasicFormatter& rhs) noexcept -> void {
@@ -90,7 +109,7 @@ namespace dark {
             }
 
         private:
-            std::string m_format;
+            CowString m_format;
             SmallVec<FormatterAnyArg, 4> m_args;
             std::function<std::string(std::string_view, std::span<FormatterAnyArg const>)> m_apply{nullptr};
         };
@@ -98,4 +117,19 @@ namespace dark {
     } // namespace core
 } // namespace dark
 
+template <>
+struct std::formatter<dark::core::BasicFormatter> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::core::BasicFormatter const& f, auto& ctx) const {
+        return std::format_to(ctx.out(), "{}", f.format().to_borrowed());
+    }
+};
 #endif // AMT_DARK_DIAGNOSTIC_CORE_FORMAT_HPP

@@ -1,6 +1,7 @@
 #ifndef AMT_DARK_DIAGNOSTIC_CORE_FORMAT_ANY_HPP
 #define AMT_DARK_DIAGNOSTIC_CORE_FORMAT_ANY_HPP
 
+#include "cow_string.hpp"
 #include <concepts>
 #include <cstddef>
 #include <format>
@@ -10,15 +11,6 @@
 #include <string>
 #include <memory.h>
 #include <string_view>
-
-namespace dark::core {
-    struct FormatterAnyArg;
-}
-
-namespace std {
-    template<>
-    struct formatter<::dark::core::FormatterAnyArg>;
-}
 
 namespace dark::core {
     template <typename T>
@@ -36,10 +28,30 @@ namespace dark::core {
         { t.to_string() } -> std::same_as<std::string>;
     };
 
+    namespace detail {
+        template <template <typename... InnerArgs> class Tmpl>
+        struct IsSpecialized {
+        private:
+            template <typename... Args, class dummy = decltype(Tmpl<Args...>{})>
+            static constexpr auto exists(int) noexcept -> bool {
+                return true;
+            }
+
+            template <typename... Args>
+            static constexpr auto exists(char) noexcept -> bool {
+                return false;
+            }
+
+        public:
+           template <typename... Args>
+           static constexpr auto check() noexcept -> bool {
+                return exists<Args...>(42);
+           }
+        };
+    } // namespace detail
+
     template <typename T, typename CharT = char>
-    concept IsFormattableUsingStandardFormat = requires(T&& t) {
-        { std::formatter<T, CharT>{} } -> std::same_as<std::formatter<T, CharT>>;
-    };
+    concept IsFormattableUsingStandardFormat = detail::IsSpecialized<std::formatter>::check<T, CharT>();
 
     template <typename T>
     concept IsFormattableUsingStandardOStream = requires(std::stringstream os, T&& t) {
@@ -59,7 +71,8 @@ namespace dark::core {
         static constexpr auto small_buffer_size = std::max<std::size_t>({
             32,
             sizeof(std::string_view) + alignof(std::string_view),
-            sizeof(std::string) + alignof(std::string)
+            sizeof(std::string) + alignof(std::string),
+            sizeof(CowString) + alignof(CowString)
         });
     private:
         struct AnyWrapper {
@@ -181,6 +194,34 @@ namespace dark::core {
 
             new(m_wrapper.data) T(std::move(val));
         }
+
+        FormatterAnyArg(
+            CowString&& val,
+            allocator_t alloc = std::pmr::get_default_resource()
+        )
+            : m_alloc(alloc)
+        {
+            m_wrapper = AnyWrapper {
+                .data = {},
+                .to_string = [](
+                    AnyWrapper const& wrapper,
+                    std::string_view
+                ) -> std::string {
+                    auto* val = reinterpret_cast<CowString const*>(&wrapper.data);
+                    return val->to_owned();
+                },
+                .deleter = AnyHelper<CowString>::dealloc
+            };
+
+            new(m_wrapper.data) CowString(std::move(val));
+        }
+
+        FormatterAnyArg(
+            CowString const& val,
+            allocator_t alloc = std::pmr::get_default_resource()
+        )
+           : FormatterAnyArg(CowString(val), alloc)
+        {}
 
         template <std::size_t N>
         FormatterAnyArg(const char(&val)[N]) noexcept {
