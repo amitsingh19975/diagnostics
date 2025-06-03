@@ -4,6 +4,7 @@
 #include "core/small_vec.hpp"
 #include "core/config.hpp"
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <optional>
 #include <format>
@@ -47,11 +48,13 @@ namespace dark {
             );
         }
 
-        constexpr auto operator+(dsize_t offset) const noexcept -> Span {
+        template <std::integral T>
+        constexpr auto operator+(T offset) const noexcept -> Span {
             return shift(static_cast<std::ptrdiff_t>(offset));
         }
 
-        constexpr auto operator-(dsize_t offset) const noexcept -> Span {
+        template <std::integral T>
+        constexpr auto operator-(T offset) const noexcept -> Span {
             return shift(-static_cast<std::ptrdiff_t>(offset));
         }
 
