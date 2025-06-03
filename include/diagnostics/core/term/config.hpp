@@ -53,6 +53,22 @@ namespace dark::core::term {
             #endif
         }
 
+        #ifdef DARK_OS_UNIX
+            using native_handle_t = int;
+        #else
+            using native_handle_t = HANDLE;
+        #endif
+
+        static inline auto get_native_handle(FILE* handle) noexcept -> native_handle_t {
+            auto fd = get_fd_from_handle(handle);
+            #ifdef DARK_OS_UNIX
+                return fd;
+            #else
+                HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+                return handle;
+            #endif
+        }
+
         static inline auto get_columns_impl([[maybe_unused]] int fd) noexcept -> std::size_t {
             #ifdef DARK_OS_UNIX
                 const char* cols_str = std::getenv("COLUMNS");
