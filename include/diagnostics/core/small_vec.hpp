@@ -467,8 +467,14 @@ namespace dark::core {
             return { self->data(), size() };
         }
 
-        constexpr auto operator[](size_type k) noexcept -> reference { return data()[k]; }
-        constexpr auto operator[](size_type k) const noexcept -> const_reference { return data()[k]; }
+        constexpr auto operator[](size_type k) noexcept -> reference {
+            assert(k < size());
+            return data()[k];
+        }
+        constexpr auto operator[](size_type k) const noexcept -> const_reference {
+            assert(k < size());
+            return data()[k];
+        }
 
         constexpr auto contains(T const& needle) const noexcept -> bool requires (std::equality_comparable<T>) {
             for (auto const& el: *this) {
@@ -573,6 +579,179 @@ namespace dark::core {
         base_type m_data;
     };
 
+    template <typename T, typename A>
+    struct SmallVec<T, 0, A> {
+        using base_type = std::vector<T, A>;
+        using value_type = typename base_type::value_type;
+        using reference = typename base_type::reference;
+        using const_reference = typename base_type::const_reference;
+        using pointer = typename base_type::pointer;
+        using const_pointer = typename base_type::const_pointer;
+        using iterator = typename base_type::iterator;
+        using const_iterator = typename base_type::const_iterator;
+        using reverse_iterator = typename base_type::reverse_iterator;
+        using const_reverse_iterator = typename base_type::const_reverse_iterator;
+        using allocator_t = A; 
+        using size_type = typename base_type::size_type;
+        using difference_type = typename base_type::difference_type;
+
+        SmallVec() noexcept = default;
+
+        SmallVec(SmallVec const& other) = default;
+        SmallVec(SmallVec&& other) noexcept = default;
+        SmallVec& operator=(SmallVec const& other) = default;
+        SmallVec& operator=(SmallVec&& other) noexcept = default;
+        ~SmallVec() = default;
+
+        SmallVec(std::initializer_list<T> li)
+            : m_data(li)
+        {}
+
+        SmallVec(size_type n)
+            : m_data(n)
+        {}
+
+        SmallVec(size_type n, T def)
+            : m_data(n, std::move(def))
+        {}
+
+        constexpr auto size() const noexcept -> size_type {
+            return m_data.size();
+        }
+
+        constexpr auto empty() const noexcept -> bool {
+            return m_data.empty();
+        }
+
+        auto push_back(const_reference val) -> void {
+            m_data.push_back(val);
+        }
+
+        auto push_back(value_type&& val) -> void {
+            m_data.push_back(val);
+        }
+
+        auto pop_back() -> void {
+            assert(!empty());
+            m_data.pop_back();
+        }
+
+        template <typename... Args>
+            requires std::constructible_from<T, Args...>
+        auto emplace_back(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) -> void {
+            m_data.emplace_back(std::forward<Args>(args)...);
+        }
+
+
+        auto back() -> reference {
+            assert(!empty());
+            return m_data.back();
+        }
+
+        auto back() const -> const_reference {
+            assert(!empty());
+            return m_data.back();
+        }
+
+
+        auto front() -> reference {
+            assert(!empty());
+            return m_data.front();
+        }
+
+        auto front() const -> const_reference {
+            assert(!empty());
+            return m_data.front();
+        }
+
+        constexpr auto data() noexcept -> pointer {
+            return m_data.data();
+        }
+
+        constexpr auto data() const noexcept -> const_pointer {
+            return m_data.data();
+        }
+
+        constexpr auto begin() noexcept -> iterator { return m_data.begin(); }
+        constexpr auto end() noexcept -> iterator { return m_data.end(); }
+
+        constexpr auto begin() const noexcept -> const_iterator { return m_data.begin(); }
+        constexpr auto end() const noexcept -> const_iterator { return m_data.end(); }
+
+        constexpr auto rbegin() noexcept -> reverse_iterator {
+            return m_data.rbegin();
+        }
+        constexpr auto rend() noexcept -> reverse_iterator {
+            return m_data.rbegin();
+        }
+
+        constexpr auto rbegin() const noexcept -> const_reverse_iterator {
+            return m_data.rbegin();
+        }
+        constexpr auto rend() const noexcept -> const_reverse_iterator {
+            return m_data.rend();
+        }
+
+        constexpr auto is_small() const noexcept -> bool {
+            return false;
+        }
+
+        constexpr operator std::span<T>() const noexcept {
+            return std::span(m_data);
+        }
+
+        constexpr auto operator[](size_type k) noexcept -> reference {
+            assert(k < size());
+            return m_data[k];
+        }
+        constexpr auto operator[](size_type k) const noexcept -> const_reference {
+            assert(k < size());
+            return m_data[k];
+        }
+
+        constexpr auto contains(T const& needle) const noexcept -> bool requires (std::equality_comparable<T>) {
+            for (auto const& el: *this) {
+                if (el == needle) return true;
+            }
+            return false;
+        }
+
+        auto reserve(size_type n) {
+            m_data.reserve(n);
+        }
+
+        auto resize(size_type n) {
+            m_data.resize(n);
+        }
+
+        auto resize(size_type n, T const& def) {
+            m_data.resize(n, def);
+        }
+
+        auto clear() noexcept(std::is_nothrow_destructible_v<T>) {
+            m_data.clear();
+        }
+
+        auto erase(iterator pos) -> void {
+            m_data.erase(pos);
+        }
+
+        auto erase(iterator first, iterator last) -> void {
+            m_data.erase(first, last);
+        }
+
+        friend auto swap(SmallVec& lhs, SmallVec& rhs) noexcept -> void {
+            using std::swap;
+            swap(lhs.m_data, rhs.m_data);
+        }
+
+        constexpr auto operator==(SmallVec const& other) const noexcept -> bool {
+            return m_data == other.m_data;
+        }
+
+    private:
+        base_type m_data;
+    };
 } // namespace dark::core
 
 #endif // AMT_DARK_DIAGNOSTIC_CORE_SMALL_VEC_HPP
