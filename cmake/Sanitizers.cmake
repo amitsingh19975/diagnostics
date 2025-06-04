@@ -2,7 +2,9 @@ function(enable_sanitizers project_name)
     
     set(SANITIZERS "")
 
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "^(Apple)?Clang$")
+    string(REGEX MATCH "^(Apple)?Clang$" _is_clang "${CMAKE_CXX_COMPILER_ID}")
+
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR _is_clang)
         option(ENABLE_CONVERAGE "Enable coverage reporting for gcc/clang" OFF)
         if (ENABLE_CONVERAGE)
             target_compile_options(${project_name} INTERFACE --coverage -O0 -g)
