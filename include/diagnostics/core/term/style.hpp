@@ -11,6 +11,7 @@ namespace dark::term {
         bool bold{false};
         bool dim{false};
         bool strike{false};
+        bool italic{false};
         unsigned groupId{};
         int zIndex{};
 
@@ -21,7 +22,8 @@ namespace dark::term {
             return {
                 .bold = bold,
                 .dim = dim,
-                .strike = strike
+                .strike = strike,
+                .italic = italic
             };
         }
 
@@ -57,6 +59,7 @@ namespace dark::term {
         bool bold{false};
         bool dim{false};
         bool strike{false};
+        bool italic{false};
         unsigned groupId{};
         int zIndex{};
         bool word_wrap{};
@@ -74,6 +77,7 @@ namespace dark::term {
                 .bold = bold,
                 .dim = dim,
                 .strike = strike,
+                .italic = italic,
                 .groupId = groupId,
                 .zIndex = zIndex,
             };

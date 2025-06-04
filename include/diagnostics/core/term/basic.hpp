@@ -2,7 +2,12 @@
 #define AMT_DARK_DIAGNOSTIC_CORE_TERM_BASIC_HPP
 
 #include "../config.hpp"
+#include <algorithm>
+#include <functional>
+#include <numeric>
 #include <string_view>
+#include <array>
+#include <utility>
 
 #ifdef DARK_OS_UNIX
     #include <unistd.h>
@@ -60,112 +65,191 @@ namespace dark::core::term {
 #endif
 
 
-#define COLOR(FGBG, CODE, BOLD, DIM, STRIKE) "\033[" BOLD DIM STRIKE FGBG CODE "m"
-#define COLOR3(BOLD, DIM, STRIKE) "\033[" BOLD DIM STRIKE "m"
+#define COLOR(FGBG, CODE, BOLD, DIM, STRIKE, ITALIC) "\033[" BOLD DIM STRIKE ITALIC FGBG CODE "m"
+#define COLOR3(BOLD, DIM, STRIKE, ITALIC) "\033[" BOLD DIM STRIKE ITALIC "m"
 
-#define ALLCOLORS(FGBG, BRIGHT, BOLD, DIM, STRIKE) \
-  {                           \
-    COLOR(FGBG, "0", BOLD, DIM, STRIKE),   \
-    COLOR(FGBG, "1", BOLD, DIM, STRIKE),   \
-    COLOR(FGBG, "2", BOLD, DIM, STRIKE),   \
-    COLOR(FGBG, "3", BOLD, DIM, STRIKE),   \
-    COLOR(FGBG, "4", BOLD, DIM, STRIKE),   \
-    COLOR(FGBG, "5", BOLD, DIM, STRIKE),   \
-    COLOR(FGBG, "6", BOLD, DIM, STRIKE),   \
-    COLOR(FGBG, "7", BOLD, DIM, STRIKE),   \
-    COLOR(BRIGHT, "0", BOLD, DIM, STRIKE), \
-    COLOR(BRIGHT, "1", BOLD, DIM, STRIKE), \
-    COLOR(BRIGHT, "2", BOLD, DIM, STRIKE), \
-    COLOR(BRIGHT, "3", BOLD, DIM, STRIKE), \
-    COLOR(BRIGHT, "4", BOLD, DIM, STRIKE), \
-    COLOR(BRIGHT, "5", BOLD, DIM, STRIKE), \
-    COLOR(BRIGHT, "6", BOLD, DIM, STRIKE), \
-    COLOR(BRIGHT, "7", BOLD, DIM, STRIKE), \
-    COLOR3(BOLD, DIM, STRIKE),             \
+#define ALLCOLORS(FGBG, BRIGHT, BOLD, DIM, STRIKE, ITALIC) \
+  {                                                          \
+    COLOR(FGBG, "0", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(FGBG, "1", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(FGBG, "2", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(FGBG, "3", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(FGBG, "4", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(FGBG, "5", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(FGBG, "6", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(FGBG, "7", BOLD, DIM, STRIKE, ITALIC),             \
+    COLOR(BRIGHT, "0", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR(BRIGHT, "1", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR(BRIGHT, "2", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR(BRIGHT, "3", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR(BRIGHT, "4", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR(BRIGHT, "5", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR(BRIGHT, "6", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR(BRIGHT, "7", BOLD, DIM, STRIKE, ITALIC),           \
+    COLOR3(BOLD, DIM, STRIKE, ITALIC),                       \
   }
 
-    static constexpr std::string_view color_codes[2/*bg*/][2/*bold*/][2/*dim*/][2/*strike*/][17/*codes*/] = {
-        // bg
+    static constexpr std::string_view color_codes[2/*bg*/][2/*bold*/][2/*dim*/][2/*strike*/][2/*italic*/][17/*codes*/] = {
+        // bg (0 = foreground, 1 = background)
         {
-            // bold
+            // bold (0 = not bold, 1 = bold)
             {
-                // dim
+                // dim (0 = not dim, 1 = dim)
                 {
-                    // bold 0, dim 0, strike 0
-                    ALLCOLORS("3", "9", "", "", ""),
+                    // strike (0 = no strike, 1 = strike)
+                    {
+                        // italic (0 = no italic, 1 = italic)
 
-                    // bold 0, dim 0, strike 1
-                    ALLCOLORS("3", "9", "", "", "9;"),
+                        // bold 0, dim 0, strike 0, italic 0
+                        ALLCOLORS("3", "9", "", "", "", ""),
+
+                        // bold 0, dim 0, strike 0, italic 1
+                        ALLCOLORS("3", "9", "", "", "", "3;"),
+                    },
+                    {
+                        // bold 0, dim 0, strike 1, italic 0
+                        ALLCOLORS("3", "9", "", "", "9;", ""),
+
+                        // bold 0, dim 0, strike 1, italic 1
+                        ALLCOLORS("3", "9", "", "", "9;", "3;"),
+                    }
                 },
                 {
-                    // bold 0, dim 1, strike 0
-                    ALLCOLORS("3", "9", "", "2;", ""),
+                    // dim 1
+                    {
+                        // bold 0, dim 1, strike 0, italic 0
+                        ALLCOLORS("3", "9", "", "2;", "", ""),
 
-                    // bold 0, dim 1, strike 1
-                    ALLCOLORS("3", "9", "", "2;", "9;"),
+                        // bold 0, dim 1, strike 0, italic 1
+                        ALLCOLORS("3", "9", "", "2;", "", "3;"),
+                    },
+                    {
+                        // bold 0, dim 1, strike 1, italic 0
+                        ALLCOLORS("3", "9", "", "2;", "9;", ""),
+
+                        // bold 0, dim 1, strike 1, italic 1
+                        ALLCOLORS("3", "9", "", "2;", "9;", "3;"),
+                    }
                 }
-
             },
             {
-                // dim
+                // bold 1
                 {
-                    // bold 1, dim 0, strike 0
-                    ALLCOLORS("3", "9", "1;", "", ""),
+                    // dim 0
+                    {
+                        // bold 1, dim 0, strike 0, italic 0
+                        ALLCOLORS("3", "9", "1;", "", "", ""),
 
-                    // bold 1, dim 0, strike 1
-                    ALLCOLORS("3", "9", "1;", "", "9;"),
+                        // bold 1, dim 0, strike 0, italic 1
+                        ALLCOLORS("3", "9", "1;", "", "", "3;"),
+                    },
+                    {
+                        // bold 1, dim 0, strike 1, italic 0
+                        ALLCOLORS("3", "9", "1;", "", "9;", ""),
+
+                        // bold 1, dim 0, strike 1, italic 1
+                        ALLCOLORS("3", "9", "1;", "", "9;", "3;"),
+                    }
                 },
                 {
-                    // bold 1, dim 1, strike 0
-                    ALLCOLORS("3", "9", "1;", "2;", ""),
+                    // dim 1
+                    {
+                        // bold 1, dim 1, strike 0, italic 0
+                        ALLCOLORS("3", "9", "1;", "2;", "", ""),
 
-                    // bold 1, dim 1, strike 1
-                    ALLCOLORS("3", "9", "1;", "2;", "9;"),
+                        // bold 1, dim 1, strike 0, italic 1
+                        ALLCOLORS("3", "9", "1;", "2;", "", "3;"),
+                    },
+                    {
+                        // bold 1, dim 1, strike 1, italic 0
+                        ALLCOLORS("3", "9", "1;", "2;", "9;", ""),
+
+                        // bold 1, dim 1, strike 1, italic 1
+                        ALLCOLORS("3", "9", "1;", "2;", "9;", "3;"),
+                    }
                 }
-
             }
         },
+        // bg (1 = background)
         {
             // bold
             {
                 // dim
                 {
-                    // bold 0, dim 0, strike 0
-                    ALLCOLORS("4", "9", "", "", ""),
+                    // strike
+                    {
+                        // italic
+                        // bold 0, dim 0, strike 0, italic 0
+                        ALLCOLORS("4", "10", "", "", "", ""),
 
-                    // bold 0, dim 0, strike 1
-                    ALLCOLORS("4", "9", "", "", "9;"),
+                        // bold 0, dim 0, strike 0, italic 1
+                        ALLCOLORS("4", "10", "", "", "", "3;"),
+                    },
+                    {
+                        // bold 0, dim 0, strike 1, italic 0
+                        ALLCOLORS("4", "10", "", "", "9;", ""),
+
+                        // bold 0, dim 0, strike 1, italic 1
+                        ALLCOLORS("4", "10", "", "", "9;", "3;"),
+                    }
                 },
                 {
-                    // bold 0, dim 1, strike 0
-                    ALLCOLORS("4", "9", "", "2;", ""),
+                    // dim 1
+                    {
+                        // bold 0, dim 1, strike 0, italic 0
+                        ALLCOLORS("4", "10", "", "2;", "", ""),
 
-                    // bold 0, dim 1, strike 1
-                    ALLCOLORS("4", "9", "", "2;", "9;"),
+                        // bold 0, dim 1, strike 0, italic 1
+                        ALLCOLORS("4", "10", "", "2;", "", "3;"),
+                    },
+                    {
+                        // bold 0, dim 1, strike 1, italic 0
+                        ALLCOLORS("4", "10", "", "2;", "9;", ""),
+
+                        // bold 0, dim 1, strike 1, italic 1
+                        ALLCOLORS("4", "10", "", "2;", "9;", "3;"),
+                    }
                 }
-
             },
             {
-                // dim
+                // bold 1
                 {
-                    // bold 1, dim 0, strike 0
-                    ALLCOLORS("4", "9", "1;", "", ""),
+                    // dim 0
+                    {
+                        // bold 1, dim 0, strike 0, italic 0
+                        ALLCOLORS("4", "10", "1;", "", "", ""),
 
-                    // bold 1, dim 0, strike 1
-                    ALLCOLORS("4", "9", "1;", "", "9;"),
+                        // bold 1, dim 0, strike 0, italic 1
+                        ALLCOLORS("4", "10", "1;", "", "", "3;"),
+                    },
+                    {
+                        // bold 1, dim 0, strike 1, italic 0
+                        ALLCOLORS("4", "10", "1;", "", "9;", ""),
+
+                        // bold 1, dim 0, strike 1, italic 1
+                        ALLCOLORS("4", "10", "1;", "", "9;", "3;"),
+                    }
                 },
                 {
-                    // bold 1, dim 1, strike 0
-                    ALLCOLORS("4", "9", "1;", "2;", ""),
+                    // dim 1
+                    {
+                        // bold 1, dim 1, strike 0, italic 0
+                        ALLCOLORS("4", "10", "1;", "2;", "", ""),
 
-                    // bold 1, dim 1, strike 1
-                    ALLCOLORS("4", "9", "1;", "2;", "9;"),
+                        // bold 1, dim 1, strike 0, italic 1
+                        ALLCOLORS("4", "10", "1;", "2;", "", "3;"),
+                    },
+                    {
+                        // bold 1, dim 1, strike 1, italic 0
+                        ALLCOLORS("4", "10", "1;", "2;", "9;", ""),
+
+                        // bold 1, dim 1, strike 1, italic 1
+                        ALLCOLORS("4", "10", "1;", "2;", "9;", "3;"),
+                    }
                 }
-
             }
         }
     };
-
     struct TerminalStyle {
         using size_type = std::size_t;
 
@@ -173,6 +257,7 @@ namespace dark::core::term {
         bool bold{};
         bool dim{};
         bool strike{};
+        bool italic{};
         char code{16};
 
         constexpr auto to_ansi_code() const noexcept -> std::string_view {
@@ -180,8 +265,9 @@ namespace dark::core::term {
             auto bold_ = static_cast<size_type>(bold);
             auto dim_ = static_cast<size_type>(dim);
             auto strike_ = static_cast<size_type>(strike);
+            auto italic_ = static_cast<size_type>(italic);
             auto code_ = static_cast<size_type>(code) % 17;
-            return color_codes[bg_][bold_][dim_][strike_][code_];
+            return color_codes[bg_][bold_][dim_][strike_][italic_][code_];
         }
     };
 

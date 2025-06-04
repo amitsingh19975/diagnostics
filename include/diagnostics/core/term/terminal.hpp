@@ -20,12 +20,13 @@ namespace dark {
             bool bold{false};
             bool dim{false};
             bool strike{false};
+            bool italic{false};
 
             constexpr auto operator==(Style const&) const noexcept -> bool = default;
         };
 
         static constexpr auto default_style() noexcept -> Style {
-            return Style { .bold = false, .dim = false, .strike = false };
+            return Style { .bold = false, .dim = false, .strike = false, .italic = false };
         };
 
         enum class Color: std::uint8_t {
@@ -138,7 +139,8 @@ namespace dark {
                     .bg = false,
                     .bold = style.bold,
                     .dim = style.dim,
-                    .strike = style.strike
+                    .strike = style.strike,
+                    .italic = style.italic
                 };
 
                 if (text_color != SAVEDCOLOR) {

@@ -16,6 +16,7 @@ namespace dark::term {
         std::optional<bool> bold{};
         std::optional<bool> dim{};
         std::optional<bool> strike{};
+        std::optional<bool> italic{};
         std::optional<PaddingValues> padding{};
 
         constexpr auto to_style(TextStyle parent_style) const noexcept -> Style {
@@ -24,7 +25,8 @@ namespace dark::term {
                 .bg_color = bg_color.value_or(parent_style.bg_color),
                 .bold = bold.value_or(parent_style.bold),
                 .dim = dim.value_or(parent_style.dim),
-                .strike = strike.value_or(parent_style.strike)
+                .strike = strike.value_or(parent_style.strike),
+                .italic = strike.value_or(parent_style.italic)
             };
         }
     };
