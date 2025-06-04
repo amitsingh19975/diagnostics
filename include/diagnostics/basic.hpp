@@ -264,7 +264,8 @@ namespace dark {
 
     struct DiagnosticMessage {
         core::BasicFormatter message{};
-        core::BasicFormatter insertion_text{};
+        // Could be used for insertion and rendering messages for helper text
+        core::SmallVec<DiagnosticTokenInfo> tokens{};
         core::SmallVec<Span, 1> spans{};
         DiagnosticLevel level{};
         DiagnosticOperationKind op{};
@@ -291,7 +292,6 @@ namespace dark {
         };
     } // namespace internal
 } // namespace dark
-
 
 #define dark_make_diagnostic(DiagnosticKind, Format, ...) dark::internal::DiagnosticBase<__VA_ARGS__>((DiagnosticKind), (Format))
 
@@ -431,7 +431,7 @@ struct std::formatter<dark::DiagnosticMessage> {
     }
 
     auto format(dark::DiagnosticMessage const& m, auto& ctx) const {
-        return std::format_to(ctx.out(), "DiagnosticMessage(message={}, inserted_text={}, spans={}, level={}, op={})", m.message, m.insertion_text, std::span(m.spans), m.level, m.op);
+        return std::format_to(ctx.out(), "DiagnosticMessage(message={}, tokens={}, spans={}, level={}, op={})", m.message, m.tokens, std::span(m.spans), m.level, m.op);
     }
 };
 
