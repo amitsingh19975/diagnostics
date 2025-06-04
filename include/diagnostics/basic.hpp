@@ -66,6 +66,7 @@ namespace dark {
         TokenColor text_color{ TokenColor::Default };
         TokenColor bg_color{ TokenColor::Default };
         bool bold{false};
+        bool italic{false};
 
         constexpr auto col() const noexcept -> dsize_t {
             return std::max(column_number + marker.start(), dsize_t{1}) - 1;
