@@ -11,6 +11,7 @@
 #include <string>
 #include <memory.h>
 #include <string_view>
+#include <utility>
 
 namespace dark::core {
     template <typename T>
@@ -75,49 +76,116 @@ namespace dark::core {
             sizeof(CowString) + alignof(CowString)
         });
     private:
+        using allocator_t = std::pmr::polymorphic_allocator<std::byte>;
         struct AnyWrapper {
             union {
                 std::byte* ptr{nullptr};
-                std::byte data[small_buffer_size]; // small buffer
-            };
-            std::function<std::string(AnyWrapper const&, std::string_view)> to_string{nullptr};
-            std::function<void(AnyWrapper&, std::pmr::polymorphic_allocator<std::byte>)> deleter{nullptr};
-        };
+                std::byte buf[small_buffer_size]; // small buffer
+            } data;
+            std::string(*to_string)(AnyWrapper const&, std::string_view){nullptr};
+            void(*deleter)(AnyWrapper&, allocator_t&){nullptr};
 
-        template <typename T>
-        struct AnyHelper {
-            static auto dealloc(AnyWrapper& wrapper, std::pmr::polymorphic_allocator<std::byte> alloc) -> void {
+            constexpr AnyWrapper() noexcept = default;
+            constexpr AnyWrapper(std::byte* ptr) noexcept
+                : data(ptr)
+            {}
+
+            AnyWrapper(AnyWrapper const& other) = delete;
+            constexpr AnyWrapper(AnyWrapper && other) noexcept
+                : data(other.data)
+                , to_string(std::exchange(other.to_string, nullptr))
+                , deleter(std::exchange(other.deleter, nullptr))
+            {}
+            AnyWrapper& operator=(AnyWrapper const& other) = delete;
+            constexpr AnyWrapper& operator=(AnyWrapper && other) noexcept {
+                if (this == &other) return *this;
+                data = other.data;
+                to_string = std::exchange(other.to_string, nullptr);
+                deleter = std::exchange(other.deleter, nullptr);
+                return *this;
+            }
+
+            template <typename T>
+            auto get() noexcept -> T* {
                 if constexpr (sizeof(T) <= small_buffer_size) {
-                    auto* tmp = reinterpret_cast<T*>(&wrapper.data);
-                    tmp->~T();
+                    // small data
+                    return reinterpret_cast<T*>(data.buf);
                 } else {
-                    alloc.delete_object(reinterpret_cast<T*>(wrapper.ptr));
+                    // big data
+                    return reinterpret_cast<T*>(data.ptr);
+                }
+            }
+
+            template <typename T>
+            auto get() const noexcept -> T const* {
+                if constexpr (sizeof(T) <= small_buffer_size) {
+                    // small data
+                    return reinterpret_cast<T const*>(data.buf);
+                } else {
+                    // big data
+                    return reinterpret_cast<T const*>(data.ptr);
+                }
+            }
+
+            template <typename T>
+            auto mem_ptr() noexcept -> T*& {
+                return *reinterpret_cast<T**>(data);
+            }
+
+            auto dealloc(allocator_t& alloc) -> void {
+                if (!deleter) {
+                    deleter(*this, alloc);
                 }
             }
         };
 
-        using allocator_t = std::pmr::polymorphic_allocator<std::byte>;
+        template <typename T>
+        struct AnyHelper {
+            static auto dealloc(AnyWrapper& wrapper, allocator_t& alloc) -> void {
+                if constexpr (sizeof(T) <= small_buffer_size) {
+                    wrapper.get<T>()->~T();
+                } else {
+                    alloc.delete_object(wrapper.get<T>());
+                }
+            }
+
+            static auto to_string(AnyWrapper const& wrapper, std::string_view fmt) -> std::string {
+                using std::to_string;
+
+                auto* val = wrapper.get<T>();
+                if constexpr (IsFormattableUsingStandardFormat<T>) {
+                    return std::vformat(fmt, std::make_format_args(*val));
+                } else if constexpr (
+                    IsFormattableUsingGlobalOverload<T> ||
+                    IsFormattableUsingStandardToString<T>
+                ) {
+                    return to_string(*val);
+                } else if constexpr (IsFormattableUsingMember<T>) {
+                    return val->to_string();
+                } else if constexpr (IsFormattableUsingStandardOStream<T>) {
+                    std::stringstream os;
+                    os << *val;
+                    return os.str();
+                }
+            }
+        };
+
     public:
 
         constexpr FormatterAnyArg() noexcept = default;
         constexpr FormatterAnyArg(FormatterAnyArg const&) = delete;
         constexpr FormatterAnyArg(FormatterAnyArg && other) noexcept
             : m_wrapper(std::move(other.m_wrapper))
-        {
-            other.m_wrapper.deleter = nullptr;
-        }
+        {}
         constexpr FormatterAnyArg& operator=(FormatterAnyArg const&) = delete;
         constexpr FormatterAnyArg& operator=(FormatterAnyArg && other) noexcept {
             if (this == &other) return *this;
-            auto temp = FormatterAnyArg(std::move(other));
-            swap(*this, temp);
+            m_wrapper = std::move(other.m_wrapper);
             return *this;
         }
 
         ~FormatterAnyArg() {
-            if (m_wrapper.deleter) {
-                m_wrapper.deleter(m_wrapper, m_alloc);
-            }
+            m_wrapper.dealloc(m_alloc);
         }
 
         template <IsFormattable T>
@@ -128,34 +196,9 @@ namespace dark::core {
         ) noexcept(std::is_nothrow_move_constructible_v<T>)
             : m_alloc(alloc)
         {
-            m_wrapper = AnyWrapper {
-                .data = {},
-                .to_string = [](
-                    AnyWrapper const& wrapper,
-                    std::string_view fmt
-                ) -> std::string {
-                    using std::to_string;
-
-                    auto* val = reinterpret_cast<T const*>(&wrapper.data);
-                    if constexpr (IsFormattableUsingStandardFormat<T>) {
-                        return std::vformat(fmt, std::make_format_args(*val));
-                    } else if constexpr (
-                        IsFormattableUsingGlobalOverload<T> ||
-                        IsFormattableUsingStandardToString<T>
-                    ) {
-                        return to_string(*val);
-                    } else if constexpr (IsFormattableUsingMember<T>) {
-                        return val->to_string();
-                    } else if constexpr (IsFormattableUsingStandardOStream<T>) {
-                        std::stringstream os;
-                        os << *val;
-                        return os.str();
-                    }
-                },
-                .deleter = AnyHelper<T>::dealloc
-            };
-
-            new(m_wrapper.data) T(std::move(val));
+            m_wrapper.to_string = AnyHelper<T>::to_string;
+            m_wrapper.deleter = AnyHelper<T>::dealloc;
+            new(m_wrapper.data.buf) T(std::move(val));
         }
 
         template <IsFormattable T>
@@ -165,34 +208,10 @@ namespace dark::core {
         )
             : m_alloc(alloc)
         {
-            m_wrapper = AnyWrapper{
-                .data = m_alloc.allocate(sizeof(T)),
-                .to_string = [](
-                    AnyWrapper const& wrapper,
-                    std::string_view fmt
-                ) -> std::string {
-                    using std::to_string;
-
-                    auto* val = reinterpret_cast<T const*>(wrapper.ptr);
-                    if constexpr (IsFormattableUsingStandardFormat<T>) {
-                        return std::vformat(fmt, std::make_format_args(*val));
-                    } else if constexpr (
-                        IsFormattableUsingGlobalOverload<T> ||
-                        IsFormattableUsingStandardToString<T>
-                    ) {
-                        return to_string(*val);
-                    } else if constexpr (IsFormattableUsingMember<T>) {
-                        return val->to_string();
-                    } else if constexpr (IsFormattableUsingStandardOStream<T>) {
-                        std::stringstream os;
-                        os << *val;
-                        return os.str();
-                    }
-                },
-                .deleter = AnyHelper<T>::dealloc
-            };
-
-            new(m_wrapper.data) T(std::move(val));
+            m_wrapper.data.ptr = m_alloc.allocate(sizeof(T));
+            m_wrapper.to_string = AnyHelper<T>::to_string;
+            m_wrapper.deleter = AnyHelper<T>::dealloc;
+            new(m_wrapper.data.ptr) T(std::move(val));
         }
 
         FormatterAnyArg(
@@ -201,19 +220,14 @@ namespace dark::core {
         )
             : m_alloc(alloc)
         {
-            m_wrapper = AnyWrapper {
-                .data = {},
-                .to_string = [](
-                    AnyWrapper const& wrapper,
-                    std::string_view
-                ) -> std::string {
-                    auto* val = reinterpret_cast<CowString const*>(&wrapper.data);
-                    return val->to_owned();
-                },
-                .deleter = AnyHelper<CowString>::dealloc
+            m_wrapper.to_string = +[](
+                AnyWrapper const& wrapper,
+                std::string_view
+            ) {
+                return wrapper.get<CowString>()->to_owned();
             };
-
-            new(m_wrapper.data) CowString(std::move(val));
+            m_wrapper.deleter = AnyHelper<CowString>::dealloc;
+            new(m_wrapper.data.buf) CowString(std::move(val));
         }
 
         FormatterAnyArg(
@@ -223,53 +237,12 @@ namespace dark::core {
            : FormatterAnyArg(CowString(val), alloc)
         {}
 
-        template <std::size_t N>
-        FormatterAnyArg(const char(&val)[N]) noexcept {
-            m_wrapper = AnyWrapper {
-                .data = {},
-                .to_string = [](
-                    AnyWrapper const& wrapper,
-                    [[maybe_unused]] std::string_view fmt
-                ) -> std::string {
-                    using std::to_string;
-
-                    auto* val = reinterpret_cast<std::string_view const*>(&wrapper.data);
-                    return std::string(*val);
-                },
-                .deleter = AnyHelper<std::string_view>::dealloc
-            };
-
-            new(m_wrapper.data) std::string_view(val);
-        }
-
-        FormatterAnyArg(std::string val) {
-            m_wrapper = AnyWrapper {
-                .data = {},
-                .to_string = [](
-                    AnyWrapper const& wrapper,
-                    [[maybe_unused]] std::string_view fmt
-                ) -> std::string {
-                    using std::to_string;
-                    auto val = reinterpret_cast<std::string const*>(&wrapper.data);
-                    return *val;
-                },
-                .deleter = AnyHelper<std::string>::dealloc
-            };
-
-            new(m_wrapper.data) std::string(std::move(val));
-        }
-
         auto to_string(std::string_view fmt) const -> std::string {
             if (m_wrapper.to_string) {
                 return m_wrapper.to_string(m_wrapper, fmt); 
             } else {
                 return "";
             }
-        }
-
-        constexpr friend auto swap(FormatterAnyArg& lhs, FormatterAnyArg& rhs) -> void {
-            using std::swap;
-            swap(lhs.m_wrapper, rhs.m_wrapper);
         }
 
         constexpr operator bool() const noexcept {

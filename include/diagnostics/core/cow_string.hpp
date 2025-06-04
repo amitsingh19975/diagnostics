@@ -1,18 +1,27 @@
 #ifndef AMT_DARK_DIAGANOSTICS_COW_STRING_HPP
 #define AMT_DARK_DIAGANOSTICS_COW_STRING_HPP
 
+#include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <string>
 #include <string_view>
-#include <variant>
+#include <utility>
 
 namespace dark::core {
 
     struct CowString {
     private:
-        static constexpr auto borrowed_index = std::size_t{0};
-        static constexpr auto owned_index = std::size_t{1};
+        struct Wrapper {
+            alignas(std::max(alignof(std::string_view), alignof(std::string))) 
+            std::byte data[std::max(sizeof(std::string_view), sizeof(std::string))];
+        };
+        enum State: std::uint8_t {
+            NONE,
+            OWNED,
+            BORROWED
+        };
     public:
         using size_type = std::size_t;
         using reference = char&;
@@ -28,27 +37,31 @@ namespace dark::core {
         struct OwnedTag{};
         struct BorrowedTag{};
 
-        constexpr CowString() noexcept = default;
+        constexpr CowString() noexcept {}
         CowString(CowString const& other)
-            : m_data(other.to_owned())
+            : CowString(other.to_owned())
         {}
-        CowString(CowString&& other) noexcept {
-            if (m_data.index() == borrowed_index) m_data = other.to_borrowed();
-            else m_data = std::move(std::get<owned_index>(other.m_data));
-        }
+        CowString(CowString&& other) noexcept
+            : m_data(other.m_data)
+            , m_state(std::exchange(other.m_state, NONE))
+        {}
         CowString& operator=(CowString const& other) {
             if (this == &other) return *this;
             auto tmp = CowString(other);
-            swap(*this, tmp);
+            std::swap(m_data, tmp.m_data);
+            m_state = std::exchange(tmp.m_state, NONE);
             return *this;
         }
-        CowString& operator=(CowString&& other) noexcept {
+        CowString& operator=(CowString&& other) noexcept
+        {
             if (this == &other) return *this;
-            auto tmp = CowString(std::move(other));
-            swap(*this, tmp);
+            m_data = std::move(other.m_data);
+            m_state = std::exchange(other.m_state, NONE);
             return *this;
         }
-        ~CowString() = default;
+        ~CowString() {
+            destroy();
+        }
 
         explicit CowString(char const* s, OwnedTag = {})
             : CowString(std::string(s))
@@ -59,56 +72,61 @@ namespace dark::core {
         {}
 
         explicit CowString(std::string const& s, OwnedTag = {})
-            : m_data(s)
-        {}
+            : m_state(OWNED)
+        {
+            new(m_data.data) std::string(s);
+        }
 
         explicit constexpr CowString(std::string&& s, OwnedTag = {}) noexcept
-            : m_data(std::move(s))
-        {}
+            : m_state(OWNED)
+        {
+            new(m_data.data) std::string(s);
+        }
 
         constexpr CowString(std::string_view s, BorrowedTag = {}) noexcept
-            : m_data(s)
-        {}
+            : m_state(BORROWED)
+        {
+            new(m_data.data) std::string_view(s);
+        }
 
         template <std::size_t N>
         constexpr CowString(const char (&s)[N], OwnedTag) noexcept
-            : m_data(std::string(s))
-        {}
+            : m_state(OWNED)
+        {
+            new(m_data.data) std::string(s);
+        }
 
         template <std::size_t N>
         constexpr CowString(const char (&s)[N], BorrowedTag = {}) noexcept
-            : m_data(std::string_view(s))
-        {}
+            : m_state(BORROWED)
+        {
+            new(m_data.data) std::string_view(s);
+        }
 
-        constexpr auto is_owned() const noexcept -> bool { return m_data.index() == owned_index; }
-        constexpr auto is_borrowed() const noexcept -> bool { return m_data.index() == borrowed_index; }
+        constexpr auto is_owned() const noexcept -> bool {
+            return m_state == OWNED;
+        }
+        constexpr auto is_borrowed() const noexcept -> bool {
+            return m_state == BORROWED;
+        }
 
         constexpr auto empty() const noexcept -> bool {
-            return std::visit([](auto const& s) { return s.empty(); }, m_data);
+            if (is_owned()) return as_owned().empty();
+            else return as_borrowed().empty();
         }
 
         constexpr auto size() const noexcept -> size_type {
-            return std::visit([](auto const& s) { return s.size(); }, m_data);
+            if (is_owned()) return as_owned().size();
+            else return as_borrowed().size();
         }
 
         constexpr auto data() const noexcept -> const_pointer {
-            return std::visit([](auto const& s) { return s.data(); }, m_data);
-        }
-        constexpr auto data() noexcept -> pointer {
-            return std::visit([](auto& s) -> pointer { return const_cast<pointer>(s.data()); }, m_data);
+            if (is_owned()) return as_owned().data();
+            else return as_borrowed().data();
         }
 
-        constexpr auto begin() noexcept -> iterator { return data(); }
-        constexpr auto end() noexcept -> iterator { return data() + size(); }
         constexpr auto begin() const noexcept -> const_iterator { return data(); }
         constexpr auto end() const noexcept -> const_iterator { return data() + size(); }
-
-        constexpr auto rbegin() noexcept -> reverse_iterator {
-            return std::reverse_iterator(end());
-        }
-        constexpr auto rend() noexcept -> reverse_iterator {
-            return std::reverse_iterator(begin());
-        }
 
         constexpr auto rbegin() const noexcept -> const_reverse_iterator {
             return std::reverse_iterator(end());
@@ -118,31 +136,51 @@ namespace dark::core {
         }
 
         constexpr auto to_borrowed() const noexcept -> std::string_view {
-            return std::visit([](auto const& s) -> std::string_view { return s; }, m_data);
+            if (is_owned()) return as_owned();
+            else return as_borrowed();
         }
 
         auto to_owned() const -> std::string {
             return std::string(to_borrowed());
         }
 
-        auto conume() -> std::string {
+        auto consume() -> std::string {
+            m_state = NONE;
             if (is_owned()) {
-                return std::move(std::get<owned_index>(m_data));
+                return std::string(std::move(as_owned()));
             } else {
-                return std::string(std::get<borrowed_index>(m_data));
+                return std::string(as_borrowed());
             }
         }
 
         constexpr operator std::string_view() const noexcept {
             return to_borrowed();
         }
+    private:
+        auto as_owned() -> std::string& {
+            assert(is_owned());
+            return *reinterpret_cast<std::string*>(m_data.data);
+        }
 
-        constexpr friend auto swap(CowString& lhs, CowString& rhs) noexcept -> void {
-            using std::swap;
-            swap(lhs.m_data, rhs.m_data);
+        auto as_owned() const -> std::string const& {
+            assert(is_owned());
+            return *reinterpret_cast<std::string const*>(m_data.data);
+        }
+
+        auto as_borrowed() const -> std::string_view {
+            assert(is_borrowed());
+            return *reinterpret_cast<std::string_view const*>(m_data.data);
+        }
+
+        auto destroy() -> void {
+            using namespace std;
+            if (is_owned()) as_owned().~string();
+            else if (is_borrowed()) as_borrowed().~string_view();
+            m_state = NONE;
         }
     private:
-        std::variant<std::string_view, std::string> m_data { std::string_view{} };
+        Wrapper m_data;
+        State m_state{NONE};
     };
 
 } // dark::core
