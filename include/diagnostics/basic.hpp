@@ -13,6 +13,7 @@
 #include <format>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 namespace dark {
 
@@ -46,7 +47,7 @@ namespace dark {
         }
     }
 
-    enum class TokenColor {
+    enum class TokenColor: std::uint8_t {
         Default = 0,
         Black,
         Red,
@@ -203,6 +204,40 @@ namespace dark {
             auto rhs = std::make_tuple(other.filename, r_info.first, r_info.second);
             return lhs < rhs;
         }
+
+        static auto from_text(
+            std::string_view filename,
+            std::string_view text,
+            dsize_t line_start,
+            dsize_t line_number, 
+            dsize_t column_number, 
+            dsize_t len
+        ) -> DiagnosticLocation {
+            auto res = DiagnosticSourceLocationTokens{};
+            auto it = text.find("\n");
+            do {
+                auto txt = text.substr(0, it);
+                if (it != std::string_view::npos) {
+                    text = text.substr(it + 1);
+                    it = text.find("\n");
+                }
+                auto marker = Span(0, len);
+                len = 0;
+                res.lines.emplace_back(DiagnosticLineTokens{
+                    .tokens = {
+                        DiagnosticTokenInfo {
+                            .text = txt,
+                            .column_number = column_number,
+                            .marker = marker
+                        }
+                    },
+                    .line_number = line_number,
+                    .absolute_line_start_location = line_start
+                });
+            } while (!text.empty());
+
+            return { filename, std::move(res) };
+        }
     };
 
     namespace detail {
@@ -236,10 +271,10 @@ namespace dark {
     };
 
     struct Diagnostic {
-        core::BasicFormatter message{};
         DiagnosticLevel level{};
-        DiagnosticLocation location{};
         detail::diagnostic_kind_t kind{detail::diagnostic_default_kind};
+        DiagnosticLocation location{};
+        core::BasicFormatter message{};
         core::SmallVec<DiagnosticMessage, 2> annotations{};
         /*core::SmallVec<Diagnostic, 0> sub_diagnostics{};*/
     };
@@ -365,6 +400,61 @@ struct std::formatter<dark::DiagnosticSourceLocationTokens> {
 
     auto format(dark::DiagnosticSourceLocationTokens const& l, auto& ctx) const {
         return std::format_to(ctx.out(), "DiagnosticSourceTokensLocation(lines={})", std::span(l.lines));
+    }
+};
+
+template <>
+struct std::formatter<dark::DiagnosticLocation> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::DiagnosticLocation const& l, auto& ctx) const {
+        return std::format_to(ctx.out(), "DiagnosticLocation(filename={}, source={})", l.filename, l.source);
+    }
+};
+
+template <>
+struct std::formatter<dark::DiagnosticMessage> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::DiagnosticMessage const& m, auto& ctx) const {
+        return std::format_to(ctx.out(), "DiagnosticMessage(message={}, inserted_text={}, spans={}, level={}, op={})", m.message, m.insertion_text, std::span(m.spans), m.level, m.op);
+    }
+};
+
+template <>
+struct std::formatter<dark::Diagnostic> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::Diagnostic const& d, auto& ctx) const {
+        using kind_t = dark::detail::diagnostic_kind_t;
+        std::string kind;
+        if constexpr (dark::core::IsFormattableUsingStandardFormat<kind_t>) {
+            kind = std::format("{}", d.kind);
+        } else {
+            kind = std::format("{}", static_cast<std::size_t>(d.kind));
+        }
+        return std::format_to(ctx.out(), "Diagnostic(level={}, kind={}, location={}, message={}, annotations={})", d.level, kind, d.location, d.message, d.annotations);
     }
 };
 #endif // AMT_DARK_DIAGNOSTICS_BASIC_HPP
