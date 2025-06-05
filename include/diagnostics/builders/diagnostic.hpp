@@ -23,8 +23,11 @@ namespace dark::builder {
             }
             m_emitter->m_consumer->consume(std::move(m_diagnostic));
         }
+
+        [[nodiscard("Missing `end_annotation()` call")]] constexpr auto begin_annotation() noexcept -> DiagnosticAnnotationBuilder<LocT>;
     private:
         friend struct DiagnosticEmitter<LocT>;
+        friend struct DiagnosticAnnotationBuilder<LocT>;
 
         template <core::IsFormattable... Args>
         DiagnosticBuilder(
