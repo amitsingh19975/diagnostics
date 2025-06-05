@@ -5,6 +5,7 @@
 #include <concepts>
 #include <initializer_list>
 #include <iterator>
+#include <memory>
 #include <memory_resource>
 #include <span>
 #include <type_traits>
@@ -14,7 +15,7 @@
 
 namespace dark::core {
 
-    template <typename T, unsigned Cap = 8>
+    template <typename T, unsigned Cap = 8, typename A = std::allocator<T>>
     struct SmallVec {
         using value_type = T;
         using reference = T&;
@@ -25,7 +26,7 @@ namespace dark::core {
         using const_iterator = const_pointer;
         using reverse_iterator = std::reverse_iterator<iterator>;
         using const_reverse_iterator = std::reverse_iterator<const_iterator>;
-        using allocator_t = std::pmr::polymorphic_allocator<value_type>; 
+        using allocator_t = A; 
         using size_type = std::size_t;
         using difference_type = std::ptrdiff_t;
     private:
@@ -40,9 +41,7 @@ namespace dark::core {
         static constexpr auto growth_factor = size_type{2};
     public:
 
-        SmallVec(allocator_t alloc = std::pmr::get_default_resource()) noexcept
-            : m_alloc(alloc)
-        {}
+        SmallVec() noexcept = default;
 
         SmallVec(SmallVec const& other)
             : m_alloc(other.m_alloc)
@@ -84,6 +83,8 @@ namespace dark::core {
             return *this;
         }
         ~SmallVec() {
+            for (auto& el: *this) el.~T();
+
             if (!is_small() && m_data.dyn && capacity() > 0) {
                 m_alloc.deallocate(reinterpret_cast<pointer>(m_data.dyn), capacity());
             }
@@ -257,7 +258,7 @@ namespace dark::core {
                 auto ptr = m_alloc.allocate(ns);
                 std::move(begin(), end(), ptr);
                 auto old_ptr = reinterpret_cast<pointer>(m_data.dyn);
-                m_alloc.deallocate_object(old_ptr, capacity());
+                m_alloc.deallocate(old_ptr, capacity());
                 m_capacity = ns;
                 m_data.dyn = reinterpret_cast<TypeWrapper*>(ptr);
             }
@@ -312,6 +313,14 @@ namespace dark::core {
             if (size() != other.size()) return false;
             return std::equal(begin(), end(), other.begin());
         }
+
+        friend auto swap(SmallVec& lhs, SmallVec& rhs) noexcept -> void {
+            using std::swap;
+            swap(lhs.m_alloc, rhs.m_alloc);
+            swap(lhs.m_data, rhs.m_data);
+            swap(lhs.m_size, rhs.m_size);
+            swap(lhs.m_capacity, rhs.m_capacity);
+        }
     private:
         auto get(size_type k) noexcept -> TypeWrapper* {
             assert(k < size());
@@ -325,14 +334,14 @@ namespace dark::core {
             return m_data.dyn + k;
         }
     private:
-        allocator_t m_alloc;
+        allocator_t m_alloc{};
         Wrapper m_data;
         size_type m_size{};
         size_type m_capacity{Cap};
     };
 
-    template <typename T>
-    struct SmallVec<T, 0> {
+    template <typename T, typename A>
+    struct SmallVec<T, 0, A> {
         using base_type = std::pmr::vector<T>;
         using value_type = typename base_type::value_type;
         using reference = typename base_type::reference;
@@ -343,7 +352,7 @@ namespace dark::core {
         using const_iterator = typename base_type::const_iterator;
         using reverse_iterator = typename base_type::reverse_iterator;
         using const_reverse_iterator = typename base_type::const_reverse_iterator;
-        using allocator_t = std::pmr::polymorphic_allocator<T>; 
+        using allocator_t = A; 
         using size_type = typename base_type::size_type;
         using difference_type = typename base_type::difference_type;
 
