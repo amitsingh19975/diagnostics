@@ -5,7 +5,6 @@
 #include <concepts>
 #include <cstddef>
 #include <format>
-#include <functional>
 #include <memory_resource>
 #include <sstream>
 #include <string>
@@ -14,19 +13,20 @@
 #include <utility>
 
 namespace dark::core {
+
     template <typename T>
     concept IsFormattableUsingGlobalOverload = requires (T&& t) {
-        { to_string(t) } -> std::same_as<std::string>;
+        { to_string(t) } -> std::convertible_to<std::string_view>;
     };
 
     template <typename T>
     concept IsFormattableUsingStandardToString = requires (T&& t) {
-        { std::to_string(t) } -> std::same_as<std::string>;
+        { std::to_string(t) } -> std::convertible_to<std::string_view>;
     };
 
     template <typename T>
     concept IsFormattableUsingMember = requires (T&& t) {
-        { t.to_string() } -> std::same_as<std::string>;
+        { t.to_string() } -> std::convertible_to<std::string_view>;
     };
 
     namespace detail {
@@ -159,9 +159,9 @@ namespace dark::core {
                     IsFormattableUsingGlobalOverload<T> ||
                     IsFormattableUsingStandardToString<T>
                 ) {
-                    return to_string(*val);
+                    return std::string(to_string(*val));
                 } else if constexpr (IsFormattableUsingMember<T>) {
-                    return val->to_string();
+                    return std::string(val->to_string());
                 } else if constexpr (IsFormattableUsingStandardOStream<T>) {
                     std::stringstream os;
                     os << *val;
@@ -196,9 +196,10 @@ namespace dark::core {
         ) noexcept(std::is_nothrow_move_constructible_v<T>)
             : m_alloc(alloc)
         {
-            m_wrapper.to_string = AnyHelper<T>::to_string;
-            m_wrapper.deleter = AnyHelper<T>::dealloc;
-            new(m_wrapper.data.buf) T(std::move(val));
+            using type = std::remove_cvref_t<T>;
+            m_wrapper.to_string = AnyHelper<type>::to_string;
+            m_wrapper.deleter = AnyHelper<type>::dealloc;
+            new(m_wrapper.data.buf) type(std::move(val));
         }
 
         template <IsFormattable T>
@@ -208,10 +209,11 @@ namespace dark::core {
         )
             : m_alloc(alloc)
         {
+            using type = std::remove_cvref_t<T>;
             m_wrapper.data.ptr = m_alloc.allocate(sizeof(T));
-            m_wrapper.to_string = AnyHelper<T>::to_string;
-            m_wrapper.deleter = AnyHelper<T>::dealloc;
-            new(m_wrapper.data.ptr) T(std::move(val));
+            m_wrapper.to_string = AnyHelper<type>::to_string;
+            m_wrapper.deleter = AnyHelper<type>::dealloc;
+            new(m_wrapper.data.ptr) type(std::move(val));
         }
 
         FormatterAnyArg(
