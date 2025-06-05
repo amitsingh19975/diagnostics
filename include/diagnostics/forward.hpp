@@ -33,6 +33,12 @@ namespace dark {
 
     namespace builder {
         struct DiagnosticTokenBuilder;
+
+        template <typename LocT>
+        struct DiagnosticAnnotationBuilder;
+
+        template <typename LocT>
+        struct DiagnosticBuilder;
     } // namespace builder
 } // namespace dark
 

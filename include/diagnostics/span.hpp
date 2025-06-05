@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <optional>
 #include <format>
+#include <type_traits>
 
 namespace dark {
 
@@ -190,6 +191,11 @@ namespace dark {
         size_type m_start{};
         size_type m_size{};
     };
+
+    namespace detail {
+        template <typename S>
+        concept IsSpan = std::same_as<std::remove_cvref_t<S>, Span>;
+    } // namespace detail
 
 } // namespace dark
 
