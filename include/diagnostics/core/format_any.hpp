@@ -5,7 +5,6 @@
 #include <concepts>
 #include <cstddef>
 #include <format>
-#include <memory_resource>
 #include <sstream>
 #include <string>
 #include <memory.h>
@@ -76,7 +75,7 @@ namespace dark::core {
             sizeof(CowString) + alignof(CowString)
         });
     private:
-        using allocator_t = std::pmr::polymorphic_allocator<std::byte>;
+        using allocator_t = std::allocator<std::byte>;
         struct AnyWrapper {
             union {
                 std::byte* ptr{nullptr};
@@ -145,7 +144,9 @@ namespace dark::core {
                 if constexpr (sizeof(T) <= small_buffer_size) {
                     wrapper.get<T>()->~T();
                 } else {
-                    alloc.delete_object(wrapper.get<T>());
+                    auto ptr = wrapper.get<T>();
+                    ptr->~T();
+                    alloc.deallocate(ptr);
                 }
             }
 
@@ -171,7 +172,6 @@ namespace dark::core {
         };
 
     public:
-
         constexpr FormatterAnyArg() noexcept = default;
         constexpr FormatterAnyArg(FormatterAnyArg const&) = delete;
         constexpr FormatterAnyArg(FormatterAnyArg && other) noexcept
@@ -192,7 +192,7 @@ namespace dark::core {
             requires (sizeof(T) <= small_buffer_size)
         constexpr FormatterAnyArg(
             T&& val,
-            allocator_t alloc = std::pmr::get_default_resource()
+            allocator_t alloc = {}
         ) noexcept(std::is_nothrow_move_constructible_v<T>)
             : m_alloc(alloc)
         {
@@ -205,7 +205,7 @@ namespace dark::core {
         template <IsFormattable T>
         FormatterAnyArg(
             T&& val,
-            allocator_t alloc = std::pmr::get_default_resource()
+            allocator_t alloc = {}
         )
             : m_alloc(alloc)
         {
@@ -218,7 +218,7 @@ namespace dark::core {
 
         FormatterAnyArg(
             CowString&& val,
-            allocator_t alloc = std::pmr::get_default_resource()
+            allocator_t alloc = {}
         )
             : m_alloc(alloc)
         {
@@ -234,7 +234,7 @@ namespace dark::core {
 
         FormatterAnyArg(
             CowString const& val,
-            allocator_t alloc = std::pmr::get_default_resource()
+            allocator_t alloc = {}
         )
            : FormatterAnyArg(CowString(val), alloc)
         {}
@@ -251,7 +251,7 @@ namespace dark::core {
             return m_wrapper.to_string != nullptr;
         }
     private:
-        std::pmr::polymorphic_allocator<std::byte> m_alloc;
+        allocator_t m_alloc;
         AnyWrapper m_wrapper{}; 
     };
 
