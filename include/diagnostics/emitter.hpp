@@ -27,7 +27,7 @@ namespace dark {
         }
 
         template <core::IsFormattable... Args>
-        auto error(LocT loc, internal::DiagnosticBase<Args...> const& base, Args... args) -> builder_t {
+        [[nodiscard("Missing `emit()` call")]] auto error(LocT loc, internal::DiagnosticBase<Args...> const& base, Args... args) -> builder_t {
             return builder_t(
                 this,
                 loc,
@@ -38,7 +38,7 @@ namespace dark {
         }
 
         template <core::IsFormattable... Args>
-        auto warn(LocT loc, internal::DiagnosticBase<Args...> const& base, Args... args) -> builder_t {
+        [[nodiscard("Missing `emit()` call")]] auto warn(LocT loc, internal::DiagnosticBase<Args...> const& base, Args... args) -> builder_t {
             return builder_t(
                 this,
                 loc,
