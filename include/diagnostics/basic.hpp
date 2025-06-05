@@ -464,14 +464,18 @@ struct std::formatter<dark::Diagnostic> {
         return it;
     }
 
+    template <dark::core::IsFormattable T>
+    auto kind_to_string(T kind) const -> std::string {
+        return std::format("{}", dark::core::FormatterAnyArg(kind));
+    }
+
+    template <typename T>
+    auto kind_to_string(T kind) const -> std::string {
+        return std::format("{}", static_cast<std::size_t>(kind));
+    }
+
     auto format(dark::Diagnostic const& d, auto& ctx) const {
-        using kind_t = dark::detail::diagnostic_kind_t;
-        std::string kind;
-        if constexpr (dark::core::IsFormattableUsingStandardFormat<kind_t>) {
-            kind = std::format("{}", d.kind);
-        } else {
-            kind = std::format("{}", static_cast<std::size_t>(d.kind));
-        }
+        std::string kind = kind_to_string(d.kind);
         return std::format_to(ctx.out(), "Diagnostic(level={}, kind={}, location={}, message={}, annotations={})", d.level, kind, d.location, d.message, d.annotations);
     }
 };
