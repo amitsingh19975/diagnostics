@@ -895,7 +895,7 @@ namespace dark::term {
         ) noexcept -> std::pair<std::size_t, unsigned> {
             auto tmp_x = x;
             auto total_consumed = 0ul;
-            std::pair<std::string_view, SpanStyle> temp_buff[max_cols + 5] = {};
+            std::tuple<std::string_view, SpanStyle, std::string_view> temp_buff[max_cols + 5] = {};
             auto start_x = x;
             unsigned bottom_padding = 0u;
             unsigned top_padding = 0u;
@@ -931,7 +931,8 @@ namespace dark::term {
 
                 if (style.trim_prefix) {
                     for (; start < end; ++start, ++total_consumed) {
-                        auto [ch, sp_style] = as[start];
+                        auto [ch, sp_style, marker] = as[start];
+                        (void)marker;
                         if (sp_style.padding) {
                             auto st = sp_style.padding.value_or(PaddingValues());
                             st.left = 0;
@@ -942,7 +943,7 @@ namespace dark::term {
                 }
 
                 for (; start < end && (tmp_x < size + x); ++start, ++total_consumed) {
-                    auto [ch, span_style] = as[start];
+                    auto [ch, span_style, marker] = as[start];
                     if (as.is_word_end(start)) {
                         stored_state = State {
                             .start = start,
@@ -977,11 +978,11 @@ namespace dark::term {
                         break;
                     } else if (ch[0] == '\t') {
                         for (auto i = 0ul; i < tab_width; ++i) {
-                            temp_buff[tmp_x++] = { " ", span_style };
+                            temp_buff[tmp_x++] = { " ", span_style, marker };
                         }
                         continue;
                     }
-                    temp_buff[tmp_x++] = { ch, span_style };
+                    temp_buff[tmp_x++] = { ch, span_style, marker };
                     tmp_x += padding.right;
                     np.right = 0;
                     as.update_padding(start, np);
@@ -1018,7 +1019,7 @@ namespace dark::term {
                     auto const buff_size = (tmp_x - start_x);
                     auto dots = std::min(buff_size, 3u);
                     for (auto i = 0ul; i < dots; ++i) {
-                        temp_buff[tmp_x - 1 - i] = { ".", {} };
+                        temp_buff[tmp_x - 1 - i] = { ".", {}, {} };
                     }
                 } break;
                 case TextOverflow::middle_ellipsis: {
@@ -1033,20 +1034,20 @@ namespace dark::term {
                     tmp_x += 5;
                     helper(s1, e1);
 
-                    temp_buff[e0] = { " ", {} };
-                    temp_buff[e0 + 1] = { ".", {} };
-                    temp_buff[e0 + 2] = { ".", {} };
-                    temp_buff[e0 + 3] = { ".", {} };
-                    temp_buff[s1] = { " ", {} };
+                    temp_buff[e0] = { " ", {}, {} };
+                    temp_buff[e0 + 1] = { ".", {}, {} };
+                    temp_buff[e0 + 2] = { ".", {}, {} };
+                    temp_buff[e0 + 3] = { ".", {}, {} };
+                    temp_buff[s1] = { " ", {}, {} };
                 } break;
                 case TextOverflow::start_ellipsis: {
                     auto total_len = text_size;
                     auto mid_col = std::max(size, size_type{3}) - 3;
                     auto s0 = std::max(mid_col, total_len) - mid_col;
                     auto e0 = total_len;
-                    temp_buff[tmp_x++] = { ".", {} };
-                    temp_buff[tmp_x++] = { ".", {} };
-                    temp_buff[tmp_x++] = { ".", {} };
+                    temp_buff[tmp_x++] = { ".", {}, {} };
+                    temp_buff[tmp_x++] = { ".", {}, {} };
+                    temp_buff[tmp_x++] = { ".", {}, {} };
                     helper(s0, e0);
                 } break;
                 }
@@ -1055,13 +1056,21 @@ namespace dark::term {
             y += top_padding;
 
             for (; start_x < tmp_x; ++start_x) {
-                auto [ch, st] = temp_buff[start_x];
+                auto [ch, st, marker] = temp_buff[start_x];
                 draw_pixel(
                     start_x,
                     y,
                     ch,
                     st.to_style(style)
                 );
+                if (!marker.empty()) {
+                    draw_pixel(
+                        start_x,
+                        y + 1,
+                        marker,
+                        st.to_style(style)
+                    );
+                }
             }
 
             x = tmp_x;

@@ -18,6 +18,7 @@ namespace dark::term {
         std::optional<bool> strike{};
         std::optional<bool> italic{};
         std::optional<PaddingValues> padding{};
+        std::string_view underline_marker{};
 
         constexpr auto to_style(TextStyle parent_style) const noexcept -> Style {
             return {
@@ -61,17 +62,18 @@ namespace dark::term {
             m_offset = 0;
             for (auto i = 0ul; i < strings.size(); ++i) {
                 auto const& s = strings[i].first.to_borrowed();
-                for (auto j = 0ul; j < s.size();) {
+                for (auto j = 0ul, k = 0ul; j < s.size(); ++k) {
                     auto len = core::utf8::get_length(s[j]);
-                    m_cached_index.emplace_back(i, j, len);
+                    m_cached_index.emplace_back(i, j, len, k);
                     j += len;
                 }
             }
         }
-        constexpr auto operator[](std::size_t k) noexcept -> std::pair<std::string_view, SpanStyle> {
+
+        constexpr auto operator[](std::size_t k) noexcept -> std::tuple<std::string_view, SpanStyle, std::string_view> {
             auto idx = m_offset + k;
             assert(idx < m_cached_index.size());
-            auto [s_idx, c_idx, len] = m_cached_index[idx];
+            auto [s_idx, c_idx, len, ridx] = m_cached_index[idx];
             auto const& [text, style] = strings[s_idx];
             auto ns = style;
             if (style.padding) {
@@ -84,10 +86,18 @@ namespace dark::term {
                     ns.padding->right = 0;
                 }
             }
-            return { text.to_borrowed().substr(c_idx, len), ns };
+
+            auto marker = std::string_view{};
+            if (!style.underline_marker.empty()) {
+                auto m_text = core::utf8::PackedUTF8(style.underline_marker);
+                auto m_idx = ridx % m_text.size();
+                marker = m_text[m_idx];
+                ns.padding->bottom += static_cast<unsigned>(!marker.empty());
+            }
+            return { text.to_borrowed().substr(c_idx, len), ns, marker };
         }
 
-        constexpr auto operator[](std::size_t k) const noexcept -> std::pair<std::string_view, SpanStyle> {
+        constexpr auto operator[](std::size_t k) const noexcept -> std::tuple<std::string_view, SpanStyle, std::string_view> {
             auto* self = const_cast<AnnotatedString*>(this); 
             return self->operator[](k);
         }
@@ -103,7 +113,8 @@ namespace dark::term {
         constexpr auto update_padding(std::size_t index, PaddingValues p) noexcept {
             auto idx = m_offset + index;
             assert(idx < m_cached_index.size());
-            auto [s_idx, c_idx, len] = m_cached_index[idx];
+            auto [s_idx, c_idx, len, ridx] = m_cached_index[idx];
+            (void)ridx;
             auto& style = strings[s_idx].second;
             style.padding = p;
         }
@@ -111,14 +122,15 @@ namespace dark::term {
         constexpr auto is_word_end(std::size_t k) const noexcept -> bool {
             auto idx = m_offset + k;
             if (idx >= m_cached_index.size()) return true;
-            auto [s_idx, c_idx, len] = m_cached_index[idx];
+            auto [s_idx, c_idx, len, ridx] = m_cached_index[idx];
+            (void)ridx;
             auto const& text = strings[s_idx].first.to_borrowed();
             if (std::isspace(text[c_idx])) return true;
             return c_idx == text.size();
         }
     private:
-        // (string index, char index, len)
-        mutable core::SmallVec<std::tuple<std::size_t, std::size_t, std::uint8_t>, 64> m_cached_index{};
+        // (string index, char index, len, relative index)
+        mutable core::SmallVec<std::tuple<std::size_t, std::size_t, std::uint8_t, std::size_t>, 64> m_cached_index{};
         mutable std::size_t m_offset{};
     };
 
