@@ -21,7 +21,7 @@ namespace dark::builder {
          * @param line_start_offset offset to the line start from the start of the source text.
          * @return line builder which can be used to add tokens or text.
         */
-        auto begin_line(dsize_t line_number, dsize_t line_start_offset) -> DiagnosticLineTokenBuilder;
+        [[nodiscard("Missing `end_line()` call")]] auto begin_line(dsize_t line_number, dsize_t line_start_offset) -> DiagnosticLineTokenBuilder;
 
         /**
          * @brief Adds a new text. It'll parse newlines if present.
@@ -30,7 +30,7 @@ namespace dark::builder {
          * @param column_number column number where the marker starts. It start from 1 (1-based index)
          * @param marker_len length of the marker; (column_number - 1, marker_len]
          */
-        auto add_text(
+        [[nodiscard("Missing `build()` call")]] auto add_text(
             std::string_view text,
             dsize_t line_number,
             dsize_t line_start_offset,
@@ -78,7 +78,7 @@ namespace dark::builder {
             return *this;
         }
 
-        auto build() noexcept -> DiagnosticSourceLocationTokens&& {
+        [[nodiscard("Returns tokens")]] auto build() noexcept -> DiagnosticSourceLocationTokens&& {
             return std::move(m_tokens);
         }
     private:
@@ -112,15 +112,15 @@ namespace dark::builder {
          * @param line_start_offset offset to the line start from the start of the source text.
          * @return line builder which can be used to add tokens or text.
         */
-        auto begin_line(dsize_t line_number, dsize_t line_start_offset) -> DiagnosticLineTokenBuilder{
-            end_line();
+        [[nodiscard("Missing `end_line()` call")]] auto begin_line(dsize_t line_number, dsize_t line_start_offset) -> DiagnosticLineTokenBuilder{
+            (void)end_line();
             return m_builder->begin_line(line_number, line_start_offset);
         }
 
         /**
          * @brief Marks the end of line.
         */
-        auto end_line() -> DiagnosticTokenBuilder& {
+        [[nodiscard("Missing `build()` call")]] auto end_line() -> DiagnosticTokenBuilder& {
             m_has_ended = true;
             return *m_builder;
         }
@@ -134,7 +134,7 @@ namespace dark::builder {
          * @param bold `true` if the token will be rendered as bold; otherwise `false`.
          * @param italic `true` if the token will be rendered as italic; otherwise `false`.
          */
-        auto add_token(
+        [[nodiscard("Missing `end_line()` call")]] auto add_token(
             core::CowString text,
             dsize_t column_number,
             Span marker = {},
@@ -155,31 +155,31 @@ namespace dark::builder {
             return *this;
         }
 
-        auto add_token(
+        [[nodiscard("Missing `end_line()` call")]] auto add_token(
             DiagnosticTokenInfo const& token
         ) -> DiagnosticLineTokenBuilder {
             m_builder->m_tokens.lines[m_line_index].tokens.push_back(token);
             return *this;
         }
 
-        auto add_token(
+        [[nodiscard("Missing `end_line()` call")]] auto add_token(
             DiagnosticTokenInfo && token
         ) -> DiagnosticLineTokenBuilder {
             m_builder->m_tokens.lines[m_line_index].tokens.push_back(std::move(token));
             return *this;
         }
 
-        auto add_tokens(
+        [[nodiscard("Missing `end_line()` call")]] auto add_tokens(
             std::span<DiagnosticTokenInfo> tokens
         ) -> DiagnosticLineTokenBuilder {
-            for (auto t: tokens) add_token(t);
+            for (auto t: tokens) (void) add_token(t);
             return *this;
         }
 
-        auto consume_tokens(
+        [[nodiscard("Missing `end_line()` call")]] auto consume_tokens(
             std::span<DiagnosticTokenInfo> tokens
         ) -> DiagnosticLineTokenBuilder {
-            for (auto t: tokens) add_token(std::move(t));
+            for (auto t: tokens) (void) add_token(std::move(t));
             return *this;
         }
     private:
