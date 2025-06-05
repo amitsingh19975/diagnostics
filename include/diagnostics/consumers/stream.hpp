@@ -62,6 +62,7 @@ namespace dark {
         auto consume(Diagnostic&& d) -> void override {
             FileLock lock(m_out);
             // TODO: implement renderer
+            std::println("Consuming: {}", d);
             (void) d;
         }
 
