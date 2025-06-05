@@ -181,7 +181,7 @@ namespace dark {
             swap(lhs.lines, rhs.lines);
         }
 
-        constexpr auto builder() & noexcept -> builder::DiagnosticTokenBuilder;
+        static constexpr auto builder() noexcept -> builder::DiagnosticTokenBuilder;
     };
 
     struct DiagnosticLocation {
@@ -295,20 +295,19 @@ namespace dark {
         dsize_t column_number, 
         dsize_t marker_len
     ) -> DiagnosticLocation {
-        auto loc = DiagnosticSourceLocationTokens();
-        loc.builder()
+        auto loc = DiagnosticSourceLocationTokens::builder()
             .add_text(
                 text,
                 line_number,
                 line_start_offset,
                 column_number,
                 marker_len
-            );
+            ).build();
         return { filename, std::move(loc) };
     }
 
-    inline constexpr auto DiagnosticSourceLocationTokens::builder() & noexcept -> builder::DiagnosticTokenBuilder {
-        return builder::DiagnosticTokenBuilder{*this};
+    inline constexpr auto DiagnosticSourceLocationTokens::builder() noexcept -> builder::DiagnosticTokenBuilder {
+        return builder::DiagnosticTokenBuilder{};
     }
 } // namespace dark
 
