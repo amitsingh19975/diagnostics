@@ -246,7 +246,7 @@ namespace dark {
     } // namespace detail
 
     struct DiagnosticMessage {
-        core::BasicFormatter message{};
+        core::CowString message{};
         // Could be used for insertion and rendering messages for helper text
         DiagnosticSourceLocationTokens tokens{};
         core::SmallVec<Span, 1> spans{};
@@ -433,7 +433,7 @@ struct std::formatter<dark::DiagnosticLocation> {
     }
 
     auto format(dark::DiagnosticLocation const& l, auto& ctx) const {
-        return std::format_to(ctx.out(), "DiagnosticLocation(filename={}, source={})", l.filename, l.source);
+        return std::format_to(ctx.out(), "DiagnosticLocation(filename='{}', source={})", l.filename, l.source);
     }
 };
 
@@ -449,7 +449,7 @@ struct std::formatter<dark::DiagnosticMessage> {
     }
 
     auto format(dark::DiagnosticMessage const& m, auto& ctx) const {
-        return std::format_to(ctx.out(), "DiagnosticMessage(message={}, tokens={}, spans={}, level={}, op={})", m.message, m.tokens, std::span(m.spans), m.level, m.op);
+        return std::format_to(ctx.out(), "DiagnosticMessage(message='{}', tokens={}, spans={}, level={}, op={})", m.message.to_borrowed(), m.tokens, std::span(m.spans), m.level, m.op);
     }
 };
 
