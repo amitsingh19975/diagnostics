@@ -1,7 +1,7 @@
 #ifndef AMT_DARK_DIAGNOSTICS_BUILDER_TOKEN_HPP
 #define AMT_DARK_DIAGNOSTICS_BUILDER_TOKEN_HPP
 
-#include "../basic.hpp"
+#include "../forward.hpp"
 #include "../core/cow_string.hpp"
 
 namespace dark::builder {
@@ -194,5 +194,4 @@ namespace dark::builder {
         end_line();
     }
 } // namespace dark::builder
-
 #endif // AMT_DARK_DIAGNOSTICS_BUILDER_TOKEN_HPP

@@ -2,6 +2,7 @@
 #define AMT_DARK_DIAGNOSTICS_BASIC_HPP
 
 #include "core/config.hpp"
+#include "forward.hpp"
 #include "core/cow_string.hpp"
 #include "core/format.hpp"
 #include "core/format_any.hpp"
@@ -179,6 +180,8 @@ namespace dark {
             using std::swap;
             swap(lhs.lines, rhs.lines);
         }
+
+        constexpr auto builder() & noexcept -> builder::DiagnosticTokenBuilder;
     };
 
     struct DiagnosticLocation {
@@ -213,36 +216,11 @@ namespace dark {
         static auto from_text(
             std::string_view filename,
             std::string_view text,
-            dsize_t line_start,
             dsize_t line_number, 
+            dsize_t line_start,
             dsize_t column_number, 
-            dsize_t len
-        ) -> DiagnosticLocation {
-            auto res = DiagnosticSourceLocationTokens{};
-            auto it = text.find("\n");
-            do {
-                auto txt = text.substr(0, it);
-                if (it != std::string_view::npos) {
-                    text = text.substr(it + 1);
-                    it = text.find("\n");
-                }
-                auto marker = Span(0, len);
-                len = 0;
-                res.lines.emplace_back(DiagnosticLineTokens{
-                    .tokens = {
-                        DiagnosticTokenInfo {
-                            .text = txt,
-                            .column_number = column_number,
-                            .marker = marker
-                        }
-                    },
-                    .line_number = line_number,
-                    .line_start_offset = line_start
-                });
-            } while (!text.empty());
-
-            return { filename, std::move(res) };
-        }
+            dsize_t marker_len
+        ) -> DiagnosticLocation;
     };
 
     namespace detail {
@@ -295,6 +273,43 @@ namespace dark {
             }
         };
     } // namespace internal
+} // namespace dark
+
+#include "builders/token.hpp"
+
+namespace dark {
+
+    /**
+     * @brief Constructs a new diagnostic location using filename and source text.
+     * @param filename The name of the source file.
+     * @param line_number line number starts with 1 (1-based index).
+     * @param line_start_offset offset to the line start from the start of the source text.
+     * @param column_number column number where the marker starts. It start from 1 (1-based index)
+     * @param marker_len length of the marker; (column_number - 1, marker_len]
+     */
+    inline auto DiagnosticLocation::from_text(
+        std::string_view filename,
+        std::string_view text,
+        dsize_t line_number, 
+        dsize_t line_start_offset,
+        dsize_t column_number, 
+        dsize_t marker_len
+    ) -> DiagnosticLocation {
+        auto loc = DiagnosticSourceLocationTokens();
+        loc.builder()
+            .add_text(
+                text,
+                line_number,
+                line_start_offset,
+                column_number,
+                marker_len
+            );
+        return { filename, std::move(loc) };
+    }
+
+    inline constexpr auto DiagnosticSourceLocationTokens::builder() & noexcept -> builder::DiagnosticTokenBuilder {
+        return builder::DiagnosticTokenBuilder{*this};
+    }
 } // namespace dark
 
 #define dark_make_diagnostic(DiagnosticKind, Format, ...) dark::internal::DiagnosticBase<__VA_ARGS__>((DiagnosticKind), (Format))

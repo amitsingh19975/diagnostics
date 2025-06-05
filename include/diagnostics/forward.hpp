@@ -30,6 +30,10 @@ namespace dark {
     struct ErrorTrackingDiagnosticConsumer;
     struct SortingDiagnosticConsumer;
     struct StreamDiagnosticConsumer;
+
+    namespace builder {
+        struct DiagnosticTokenBuilder;
+    } // namespace builder
 } // namespace dark
 
 #endif // AMT_DARK_DIAGNOSTICS_FORWARD_HPP
