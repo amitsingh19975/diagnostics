@@ -60,8 +60,12 @@ namespace dark {
     };
 
     struct DiagnosticTokenInfo {
+        // INFO: Do not change the order of the members since `DiagnosticLineTokenBuilder` relies
+        // on this order.
+
         core::CowString text;
         dsize_t column_number{}; // 1-based; 0 is invalid
+        // Absolute marker
         Span marker{};
         TokenColor text_color{ TokenColor::Default };
         TokenColor bg_color{ TokenColor::Default };
@@ -73,13 +77,13 @@ namespace dark {
         }
 
         // Absoulte span; starting from the source text
-        constexpr auto span(dsize_t line_start) const noexcept -> Span {
-            return Span::from_size(line_start + col(), static_cast<dsize_t>(text.size()));
+        constexpr auto span(dsize_t line_start_offset) const noexcept -> Span {
+            return Span::from_size(line_start_offset + col(), static_cast<dsize_t>(text.size()));
         }
 
         // Absoulte span; starting from the source text
         constexpr auto rel_span() const noexcept -> Span {
-            return Span::from_size(col(), static_cast<dsize_t>(text.size()));
+            return span(0);
         }
 
         constexpr auto empty() const noexcept -> bool {
@@ -90,7 +94,7 @@ namespace dark {
     struct DiagnosticLineTokens {
         core::SmallVec<DiagnosticTokenInfo> tokens;
         dsize_t line_number{}; // 1-based; 0 is invalid
-        dsize_t absolute_line_start_location{}; // position from the start of the source
+        dsize_t line_start_offset{}; // position from the start of the source
 
         // Absoulte span; starting from the source text
         constexpr auto span() const noexcept -> Span {
@@ -98,7 +102,7 @@ namespace dark {
             auto span = Span();
 
             for (auto i = 0ul; i < tokens.size(); ++i) {
-                auto token_span = tokens[i].span(absolute_line_start_location);
+                auto token_span = tokens[i].span(line_start_offset);
                 span = span.force_merge(token_span);
             }
 
@@ -119,7 +123,7 @@ namespace dark {
 
         constexpr auto span(std::size_t index) const noexcept -> Span {
             assert(index < tokens.size());
-            return tokens[index].span(absolute_line_start_location);
+            return tokens[index].span(line_start_offset);
         }
 
         constexpr auto marker(std::size_t index) const noexcept -> Span {
@@ -133,12 +137,12 @@ namespace dark {
             using std::swap;
             swap(lhs.tokens, rhs.tokens);
             swap(lhs.line_number, rhs.line_number);
-            swap(lhs.absolute_line_start_location, rhs.absolute_line_start_location);
+            swap(lhs.line_start_offset, rhs.line_start_offset);
         }
     };
 
     struct DiagnosticSourceLocationTokens {
-        core::SmallVec<DiagnosticLineTokens> lines;
+        core::SmallVec<DiagnosticLineTokens> lines{};
 
         constexpr auto span() const noexcept -> Span {
             if (empty()) return {};
@@ -166,7 +170,7 @@ namespace dark {
 
         constexpr auto absolute_line_start() const noexcept -> dsize_t {
             if (empty()) return 0;
-            return lines[0].absolute_line_start_location;
+            return lines[0].line_start_offset;
         }
 
         constexpr auto empty() const noexcept -> bool { return lines.empty(); }
@@ -233,7 +237,7 @@ namespace dark {
                         }
                     },
                     .line_number = line_number,
-                    .absolute_line_start_location = line_start
+                    .line_start_offset = line_start
                 });
             } while (!text.empty());
 
@@ -266,7 +270,7 @@ namespace dark {
     struct DiagnosticMessage {
         core::BasicFormatter message{};
         // Could be used for insertion and rendering messages for helper text
-        core::SmallVec<DiagnosticTokenInfo> tokens{};
+        DiagnosticSourceLocationTokens tokens{};
         core::SmallVec<Span, 1> spans{};
         DiagnosticLevel level{};
         DiagnosticOperationKind op{};
@@ -278,7 +282,6 @@ namespace dark {
         DiagnosticLocation location{};
         core::BasicFormatter message{};
         core::SmallVec<DiagnosticMessage, 2> annotations{};
-        /*core::SmallVec<Diagnostic, 0> sub_diagnostics{};*/
     };
 
     namespace internal {
@@ -384,7 +387,7 @@ struct std::formatter<dark::DiagnosticLineTokens> {
     }
 
     auto format(dark::DiagnosticLineTokens const& l, auto& ctx) const {
-        return std::format_to(ctx.out(), "DiagnosticLineTokens(line_number={}, line_start={}, tokens={})", l.line_number, l.absolute_line_start_location, std::span(l.tokens));
+        return std::format_to(ctx.out(), "DiagnosticLineTokens(line_number={}, line_start={}, tokens={})", l.line_number, l.line_start_offset, std::span(l.tokens));
     }
 };
 
