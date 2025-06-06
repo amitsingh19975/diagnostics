@@ -7,6 +7,7 @@
 #include <print>
 #include <tuple>
 
+
 namespace dark {
 
     struct Terminal {
@@ -37,7 +38,7 @@ namespace dark {
         static constexpr Color MAGENTA = Color::Magenta;
         static constexpr Color CYAN = Color::Cyan;
         static constexpr Color WHITE = Color::White;
-        static constexpr Color SAVEDCOLOR = Color::Current;
+        static constexpr Color DEFAULT = Color::Default;
 
         Terminal(
             FILE* handle = stdin,
@@ -74,7 +75,7 @@ namespace dark {
         auto write(
             std::string_view str,
             Color textColor,
-            Color bgColor = SAVEDCOLOR,
+            Color bgColor = DEFAULT,
             Style style = default_style()
         ) -> Terminal& {
             change_color(textColor, bgColor, style);
@@ -108,11 +109,14 @@ namespace dark {
             auto new_style = std::make_tuple(style, text_color, bg_color);
 
             if (m_current_style == new_style) return *this;
+            auto should_render_bg_color = std::get<2>(m_current_style) != bg_color;
+            auto should_render_text_color = std::get<1>(m_current_style) != text_color;
             m_current_style = new_style;
 
-            if (bg_color != SAVEDCOLOR) {
+            if (should_render_bg_color) {
                 auto term_style = core::term::TerminalStyle {
                     .bg = true,
+                    .reset = bg_color == DEFAULT
                 };
 
                 term_style.code = static_cast<char>(bg_color);
@@ -126,12 +130,14 @@ namespace dark {
                     .bold = style.bold,
                     .dim = style.dim,
                     .strike = style.strike,
-                    .italic = style.italic
+                    .italic = style.italic,
+                    .reset = should_render_text_color && text_color == DEFAULT
                 };
 
-                if (text_color != SAVEDCOLOR) {
+                if (should_render_text_color) {
                     term_style.code = static_cast<char>(text_color);
                 }
+
                 auto code = core::term::output_color(term_style);
                 write(code);
             }
@@ -142,13 +148,13 @@ namespace dark {
             Color text_color,
             Style style = default_style()
         ) -> Terminal& {
-            return change_color(text_color, SAVEDCOLOR, style);
+            return change_color(text_color, DEFAULT, style);
         }
 
         auto reset_color() -> Terminal& {
             if (!prepare_colors()) return *this;
 
-            auto new_style = std::make_tuple(default_style(), SAVEDCOLOR, SAVEDCOLOR);
+            auto new_style = std::make_tuple(default_style(), DEFAULT, DEFAULT);
             if (m_current_style == new_style) {
                 return *this;
             }
@@ -189,8 +195,8 @@ namespace dark {
         bool m_color_enabled{false};
         std::tuple<Style, Color, Color> m_current_style{
             default_style(), // style
-            SAVEDCOLOR, // text color
-            SAVEDCOLOR // bg color
+            DEFAULT, // text color
+            DEFAULT // bg color
         };
     };
 

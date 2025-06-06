@@ -4,6 +4,7 @@
 #include "base.hpp"
 #include "../core/term/terminal.hpp"
 #include "../core/term/config.hpp"
+#include "diagnostics/renderer.hpp"
 #include <cassert>
 
 #ifdef DARK_OS_UNIX
@@ -61,9 +62,7 @@ namespace dark {
 
         auto consume(Diagnostic&& d) -> void override {
             FileLock lock(m_out);
-            // TODO: implement renderer
-            std::println("Consuming: {}", d);
-            (void) d;
+            internal::render_diagnostic(m_out, d);
         }
 
         auto flush() -> void override { m_out.flush(); }

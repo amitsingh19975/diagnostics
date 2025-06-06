@@ -139,8 +139,8 @@ namespace dark::builder {
             core::CowString text,
             dsize_t column_number,
             Span marker = {},
-            Color text_color = Color::Current,
-            Color bg_color = Color::Current,
+            Color text_color = Color::Default,
+            Color bg_color = Color::Default,
             bool bold = false,
             bool italic = false
         ) -> DiagnosticLineTokenBuilder {

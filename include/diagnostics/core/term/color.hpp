@@ -14,7 +14,7 @@ namespace dark {
         Magenta,
         Cyan,
         White,
-        Current,
+        Default,
     };
 } // namespace dark
 
@@ -32,7 +32,7 @@ struct std::formatter<dark::Color> {
     auto format(dark::Color const& c, auto& ctx) const {
         auto name = "";
         switch (c) {
-        case dark::Color::Current: name = "Current"; break;
+        case dark::Color::Default: name = "Default"; break;
         case dark::Color::Black: name = "Black"; break;
         case dark::Color::Red: name = "Red"; break;
         case dark::Color::Green: name = "Green"; break;

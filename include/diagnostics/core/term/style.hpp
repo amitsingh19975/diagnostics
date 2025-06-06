@@ -6,8 +6,8 @@
 
 namespace dark::term {
     struct Style {
-        Color text_color{ Color::Current };
-        Color bg_color{ Color::Current };
+        Color text_color{ Color::Default };
+        Color bg_color{ Color::Default };
         bool bold{false};
         bool dim{false};
         bool strike{false};
@@ -45,8 +45,8 @@ namespace dark::term {
     };
 
     struct TextStyle {
-        Color text_color{ Color::Current };
-        Color bg_color{ Color::Current };
+        Color text_color{ Color::Default };
+        Color bg_color{ Color::Default };
         bool bold{false};
         bool dim{false};
         bool strike{false};

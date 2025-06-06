@@ -93,6 +93,27 @@ namespace dark::term {
                 .cross = "✖",
                 .plus = "➕"
             };
+
+            static constexpr auto dotted = LineCharSet {
+                .vertical = "┆",
+                .horizonal = "┄",
+                .turn_right = "┌",
+                .turn_down = "┐",
+                .turn_left = "┘",
+                .turn_up = "└",
+                .cross = "x",
+                .plus = "+"
+            };
+            static constexpr auto dotted_bold = LineCharSet {
+                .vertical = "┇",
+                .horizonal = "┉",
+                .turn_right = "┏",
+                .turn_down = "┓",
+                .turn_left = "┛",
+                .turn_up = "┗",
+                .cross = "✖",
+                .plus = "➕"
+            };
         } // namespace line
 
         namespace box {
@@ -146,6 +167,31 @@ namespace dark::term {
                 .top_connector = "╧",
                 .right_connector = "╟",
                 .bottom_connector = "╤",
+            };
+
+            static constexpr auto dotted = BoxCharSet {
+                .vertical = "┆",
+                .horizonal = "┄",
+                .top_left = "┌",
+                .top_right = "┐",
+                .bottom_right = "┘",
+                .bottom_left = "└",
+                .left_connector = "┤",
+                .top_connector = "┴",
+                .right_connector = "├",
+                .bottom_connector = "┬",
+            };
+            static constexpr auto dotted_bold = BoxCharSet {
+                .vertical = "┇",
+                .horizonal = "┉",
+                .top_left = "┏",
+                .top_right = "┓",
+                .bottom_right = "┛",
+                .bottom_left = "┗",
+                .left_connector = "┨",
+                .top_connector = "┸",
+                .right_connector = "┠",
+                .bottom_connector = "┰",
             };
         } // namespace box
 
@@ -865,9 +911,9 @@ namespace dark::term {
             dsize_t x,
             dsize_t y,
             TextStyle style = {},
-            Color marker_color = Color::Current
+            Color marker_color = Color::Default
         ) noexcept -> TextRenderResult {
-            if (marker_color == Color::Current) {
+            if (marker_color == Color::Default) {
                 marker_color = style.text_color;
             }
 

@@ -31,12 +31,12 @@ namespace dark {
 
     [[nodiscard]] static inline constexpr auto to_string(DiagnosticLevel level) noexcept -> std::string_view {
         switch (level) {
-            case DiagnosticLevel::Error: return "error";
-            case DiagnosticLevel::Warning: return "warning";
-            case DiagnosticLevel::Note: return "note";
-            case DiagnosticLevel::Remark: return "remark";
-            case DiagnosticLevel::Insert: return "insert";
-            case DiagnosticLevel::Delete: return "delete";
+            case DiagnosticLevel::Error: return "Error";
+            case DiagnosticLevel::Warning: return "Warning";
+            case DiagnosticLevel::Note: return "Note";
+            case DiagnosticLevel::Remark: return "Remark";
+            case DiagnosticLevel::Insert: return "Insert";
+            case DiagnosticLevel::Delete: return "Delete";
         }
     }
 
@@ -48,8 +48,8 @@ namespace dark {
         dsize_t column_number{}; // 1-based; 0 is invalid
         // Absolute marker
         Span marker{};
-        Color text_color{ Color::Current };
-        Color bg_color{ Color::Current };
+        Color text_color{ Color::Default };
+        Color bg_color{ Color::Default };
         bool bold{false};
         bool italic{false};
 
