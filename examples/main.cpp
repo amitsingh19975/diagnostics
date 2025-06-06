@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <sstream>
 
-#include "diagnostics/builders/token.hpp"
 #include "diagnostics/consumer.hpp"
 #include "diagnostics/converter.hpp"
 #include "diagnostics/core/config.hpp"
@@ -19,6 +18,7 @@
 #include "diagnostics/core/utf8.hpp"
 #include "diagnostics/basic.hpp"
 #include "diagnostics/emitter.hpp"
+#include "diagnostics/builders/annotation.hpp"
 
 struct foo {
     int v {};
@@ -88,23 +88,19 @@ struct TestConverter: DiagnosticConverter<unsigned> {
     }
 };
 
-int main() {
-    auto tokens = DiagnosticSourceLocationTokens();
-    builder::DiagnosticTokenBuilder{tokens}
-        .add_text("void main(int argc, char** argv)\n{\n return 0;\n}\n", 1, 10, 20, 50)
-        .begin_line(1, 10)
-        .end_line();
-
-    std::println("Tokens: {}", tokens);
-
-    //auto base = dark_make_diagnostic(0, "{}", int);
-    //auto consumer = ConsoleDiagnosticConsumer();
-    //auto converter = TestConverter();
-    //auto emitter = DiagnosticEmitter(
-    //    &converter,
-    //    consumer
-    //);
-    //emitter.error(2, base, 4).emit();
+int main2() {
+    auto base = dark_make_diagnostic(0, "{}", int);
+    auto consumer = ConsoleDiagnosticConsumer();
+    auto converter = TestConverter();
+    auto emitter = DiagnosticEmitter(
+        &converter,
+        consumer
+    );
+    emitter.error(2, base, 4)
+        .begin_annotation()
+            .error("unknown method found")
+        .end_annotation()
+        .emit();
     //d.error(base, 4)
     //    .begin_context()
     //        .note("try remove '{}'", '+')
@@ -124,25 +120,24 @@ int main() {
     return 0;
 }
 
-int main2() {
+int main() {
 
     auto s = dark::Terminal(stdout, Terminal::ColorMode::Enable);
     auto canvas = term::Canvas(60);
     /*canvas.add_rows(12);*/
     /*canvas.draw_line(12, 8, 2, 2);*/
 
-    auto as = term::AnnotatedString();
-    as.push("Lorem Ipsum is simply dummy\ntext of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.");
-    as.with_style({
-        .text_color = Terminal::GREEN,
-        .bold = true,
-        .padding = term::PaddingValues::all(2),
-    })
-        .push(" Green")
-        .push(" Text");
-
     [[maybe_unused]] auto [bbox, left] = canvas.draw_boxed_text(
-        as,
+        AnnotatedString::builder()
+            .push("Lorem Ipsum is simply dummy\ntext of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+            .with_style({
+                .text_color = Terminal::GREEN,
+                .bold = true,
+                .padding = term::PaddingValues::all(2),
+            })
+                .push(" Green")
+                .push(" Text")
+            .build(),
         0, 0,
         term::TextStyle{
             .text_color = Terminal::RED,

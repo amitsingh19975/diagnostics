@@ -3,6 +3,7 @@
 
 #include "core/config.hpp"
 #include "core/term/color.hpp"
+#include "diagnostics/core/term/annotated_string.hpp"
 #include "forward.hpp"
 #include "core/cow_string.hpp"
 #include "core/format.hpp"
@@ -235,7 +236,7 @@ namespace dark {
     } // namespace detail
 
     struct DiagnosticMessage {
-        core::CowString message{};
+        term::AnnotatedString message{};
         // Could be used for insertion and rendering messages for helper text
         DiagnosticSourceLocationTokens tokens{};
         core::SmallVec<Span, 1> spans{};
@@ -410,7 +411,7 @@ struct std::formatter<dark::DiagnosticMessage> {
     }
 
     auto format(dark::DiagnosticMessage const& m, auto& ctx) const {
-        return std::format_to(ctx.out(), "DiagnosticMessage(message='{}', tokens={}, spans={}, level={}, op={})", m.message.to_borrowed(), m.tokens, std::span(m.spans), m.level, m.op);
+        return std::format_to(ctx.out(), "DiagnosticMessage(message='{}', tokens={}, spans={}, level={}, op={})", m.message, m.tokens, std::span(m.spans), m.level, m.op);
     }
 };
 

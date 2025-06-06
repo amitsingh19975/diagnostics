@@ -38,6 +38,8 @@ namespace dark {
 
         template <typename LocT>
         struct DiagnosticBuilder;
+
+        struct AnnotatedStringBuilder;
     } // namespace builder
 } // namespace dark
 

@@ -7,6 +7,8 @@
 #include "style.hpp"
 #include <cctype>
 #include <cstdint>
+#include <format>
+#include "../../forward.hpp"
 
 namespace dark::term {
 
@@ -128,6 +130,8 @@ namespace dark::term {
             if (std::isspace(text[c_idx])) return true;
             return c_idx == text.size();
         }
+
+        [[nodiscard("Missing 'build()' call")]] static auto builder() noexcept -> builder::AnnotatedStringBuilder;
     private:
         // (string index, char index, len, relative index)
         mutable core::SmallVec<std::tuple<std::size_t, std::size_t, std::uint8_t, std::size_t>, 64> m_cached_index{};
@@ -135,5 +139,66 @@ namespace dark::term {
     };
 
 } // namespace dark::term
+
+namespace dark {
+    using term::SpanStyle, term::AnnotatedString;
+} // namespace dark
+
+#include "../../builders/annotated_string.hpp"
+
+namespace dark::term {
+    inline auto AnnotatedString::builder() noexcept -> builder::AnnotatedStringBuilder {
+        return {};
+    }
+} // namespace dark::term
+
+template <>
+struct std::formatter<dark::term::SpanStyle> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::term::SpanStyle const& s, auto& ctx) const {
+        auto out = ctx.out();
+        std::format_to(out, "SpanStyle(");
+        if (s.text_color) std::format_to(out, "text_color={},", *s.text_color);
+        if (s.bg_color) std::format_to(out, "bg_color={},", *s.bg_color);
+        if (s.bold) std::format_to(out, "bold={},", *s.bold);
+        if (s.dim) std::format_to(out, "dim={},", *s.dim);
+        if (s.strike) std::format_to(out, "strike={},", *s.strike);
+        if (s.italic) std::format_to(out, "italic={},", *s.italic);
+        if (s.padding) std::format_to(out, "padding={},", *s.padding);
+        if (!s.underline_marker.empty()) std::format_to(out, "underline_marker='{}'", s.underline_marker);
+        std::format_to(out, ")");
+        return out;
+    }
+};
+
+template <>
+struct std::formatter<dark::term::AnnotatedString> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::term::AnnotatedString const& s, auto& ctx) const {
+        auto out = ctx.out();
+        std::format_to(out, "AnnotatedString(strings=[");
+        for (auto const& [str, span]: s.strings) {
+            std::format_to(out, "String(text='{}', style={}),", str.to_borrowed(), span);
+        }
+        std::format_to(out, "])");
+        return out;
+    }
+};
 
 #endif // AMT_DARK_DIAGNOSTICS_TERM_ANNOTATED_STRING_HPP

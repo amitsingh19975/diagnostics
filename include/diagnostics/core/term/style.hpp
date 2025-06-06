@@ -76,4 +76,21 @@ namespace dark::term {
     };
 } // namespace dark::term
 
+template <>
+struct std::formatter<dark::term::PaddingValues> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::term::PaddingValues const& p, auto& ctx) const {
+        auto out = ctx.out();
+        std::format_to(out, "PaddingValues(top={}, right={}, bottom={}, left={})", p.top, p.right, p.bottom, p.left);
+        return out;
+    }
+};
 #endif // AMT_DARK_DIAGNOSTICS_TERM_STYLE_HPP
