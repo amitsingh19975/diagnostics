@@ -43,12 +43,14 @@ namespace dark::term {
             SpanStyle base_style;
 
             auto push(core::CowString s) -> Builder {
+                if (s.empty()) return *this;
                 ref->emplace_back(std::move(s), base_style);
                 return *this;
             }
         };
 
         auto push(core::CowString s, SpanStyle style = {}) {
+            if (s.empty()) return;
             strings.emplace_back(std::move(s), style);
         }
 
