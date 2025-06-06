@@ -53,7 +53,7 @@ namespace dark {
                 , m_args(std::move(other.m_args))
                 , m_apply(std::move(other.m_apply))
             {
-                m_apply = nullptr;
+                other.m_apply = nullptr;
             }
             BasicFormatter& operator=(BasicFormatter const&) = delete;
             BasicFormatter& operator=(BasicFormatter&& other) noexcept {
