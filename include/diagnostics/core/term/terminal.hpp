@@ -1,8 +1,8 @@
-#ifndef AMT_DARK_DIAGNOSTIC_CORE_TERMINAL_HPP
-#define AMT_DARK_DIAGNOSTIC_CORE_TERMINAL_HPP
+#ifndef AMT_DARK_DIAGNOSTICS_CORE_TERMINAL_HPP
+#define AMT_DARK_DIAGNOSTICS_CORE_TERMINAL_HPP
 
 #include "config.hpp"
-#include <cstdint>
+#include "color.hpp"
 #include <cstdio>
 #include <print>
 #include <tuple>
@@ -29,29 +29,15 @@ namespace dark {
             return Style { .bold = false, .dim = false, .strike = false, .italic = false };
         };
 
-        enum class Color: std::uint8_t {
-            BLACK = 0,
-            RED,
-            GREEN,
-            YELLOW,
-            BLUE,
-            MAGENTA,
-            CYAN,
-            WHITE,
-            SAVEDCOLOR,
-            RESET
-        };
-
-        static constexpr Color BLACK = Color::BLACK;
-        static constexpr Color RED = Color::RED;
-        static constexpr Color GREEN = Color::GREEN;
-        static constexpr Color YELLOW = Color::YELLOW;
-        static constexpr Color BLUE = Color::BLUE;
-        static constexpr Color MAGENTA = Color::MAGENTA;
-        static constexpr Color CYAN = Color::CYAN;
-        static constexpr Color WHITE = Color::WHITE;
-        static constexpr Color SAVEDCOLOR = Color::SAVEDCOLOR;
-        static constexpr Color RESET = Color::RESET;
+        static constexpr Color BLACK = Color::Black;
+        static constexpr Color RED = Color::Red;
+        static constexpr Color GREEN = Color::Green;
+        static constexpr Color YELLOW = Color::Yellow;
+        static constexpr Color BLUE = Color::Blue;
+        static constexpr Color MAGENTA = Color::Magenta;
+        static constexpr Color CYAN = Color::Cyan;
+        static constexpr Color WHITE = Color::White;
+        static constexpr Color SAVEDCOLOR = Color::Current;
 
         Terminal(
             FILE* handle = stdin,
@@ -210,4 +196,4 @@ namespace dark {
 
 } // namespace dark
 
-#endif // AMT_DARK_DIAGNOSTIC_CORE_TERMINAL_HPP
+#endif // AMT_DARK_DIAGNOSTICS_CORE_TERMINAL_HPP

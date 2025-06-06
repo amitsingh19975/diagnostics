@@ -6,7 +6,6 @@ namespace dark {
 
     enum class DiagnosticLevel: std::uint8_t;
     enum class DiagnosticOperationKind: std::uint8_t;
-    enum class TokenColor: std::uint8_t;
 
     struct DiagnosticTokenInfo;
     struct DiagnosticLineTokens;

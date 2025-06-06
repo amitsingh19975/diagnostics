@@ -3,6 +3,7 @@
 
 #include "../forward.hpp"
 #include "../core/cow_string.hpp"
+#include "../core/term/color.hpp"
 
 namespace dark::builder {
     struct DiagnosticTokenBuilder {
@@ -138,8 +139,8 @@ namespace dark::builder {
             core::CowString text,
             dsize_t column_number,
             Span marker = {},
-            TokenColor text_color = TokenColor::Default,
-            TokenColor bg_color = TokenColor::Default,
+            Color text_color = Color::Current,
+            Color bg_color = Color::Current,
             bool bold = false,
             bool italic = false
         ) -> DiagnosticLineTokenBuilder {

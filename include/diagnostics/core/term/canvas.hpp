@@ -1,8 +1,9 @@
-#ifndef AMT_DARK_DIAGNOSTIC_CORE_TERM_CANVAS_HPP
-#define AMT_DARK_DIAGNOSTIC_CORE_TERM_CANVAS_HPP
+#ifndef AMT_DARK_DIAGNOSTICS_CORE_TERM_CANVAS_HPP
+#define AMT_DARK_DIAGNOSTICS_CORE_TERM_CANVAS_HPP
 
 #include "../small_vec.hpp"
 #include "annotated_string.hpp"
+#include "color.hpp"
 #include "terminal.hpp"
 #include "../utf8.hpp"
 #include "style.hpp"
@@ -293,7 +294,12 @@ namespace dark::term {
                     term.change_color(
                         cell.style.text_color,
                         cell.style.bg_color,
-                        cell.style.term_style()
+                        {
+                            .bold = cell.style.bold,
+                            .dim = cell.style.dim,
+                            .strike = cell.style.strike,
+                            .italic = cell.style.italic
+                        }
                     );
                     if (cell.empty()) {
                         term.write(" ");
@@ -859,9 +865,9 @@ namespace dark::term {
             dsize_t x,
             dsize_t y,
             TextStyle style = {},
-            Terminal::Color marker_color = Terminal::SAVEDCOLOR
+            Color marker_color = Color::Current
         ) noexcept -> TextRenderResult {
-            if (marker_color == Terminal::SAVEDCOLOR) {
+            if (marker_color == Color::Current) {
                 marker_color = style.text_color;
             }
 
@@ -1086,4 +1092,4 @@ namespace dark::term {
 
 } // namespace dark::term
 
-#endif // AMT_DARK_DIAGNOSTIC_CORE_TERM_CANVAS_HPP
+#endif // AMT_DARK_DIAGNOSTICS_CORE_TERM_CANVAS_HPP

@@ -1,13 +1,13 @@
 #ifndef AMT_DARK_DIAGNOSTICS_TERM_STYLE_HPP
 #define AMT_DARK_DIAGNOSTICS_TERM_STYLE_HPP
 
-#include "terminal.hpp"
+#include "color.hpp"
 #include <limits>
 
 namespace dark::term {
     struct Style {
-        Terminal::Color text_color{ Terminal::SAVEDCOLOR };
-        Terminal::Color bg_color{ Terminal::SAVEDCOLOR };
+        Color text_color{ Color::Current };
+        Color bg_color{ Color::Current };
         bool bold{false};
         bool dim{false};
         bool strike{false};
@@ -17,15 +17,6 @@ namespace dark::term {
 
         static constexpr auto invalid_group_id = 0;
         static constexpr auto line_group_id = 1;
-
-        constexpr auto term_style() const noexcept -> Terminal::Style {
-            return {
-                .bold = bold,
-                .dim = dim,
-                .strike = strike,
-                .italic = italic
-            };
-        }
 
         constexpr auto is_valid_group_id() const noexcept -> bool {
             return groupId == invalid_group_id;
@@ -54,8 +45,8 @@ namespace dark::term {
     };
 
     struct TextStyle {
-        Terminal::Color text_color{ Terminal::SAVEDCOLOR };
-        Terminal::Color bg_color{ Terminal::SAVEDCOLOR };
+        Color text_color{ Color::Current };
+        Color bg_color{ Color::Current };
         bool bold{false};
         bool dim{false};
         bool strike{false};

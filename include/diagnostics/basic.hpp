@@ -2,6 +2,7 @@
 #define AMT_DARK_DIAGNOSTICS_BASIC_HPP
 
 #include "core/config.hpp"
+#include "core/term/color.hpp"
 #include "forward.hpp"
 #include "core/cow_string.hpp"
 #include "core/format.hpp"
@@ -48,18 +49,6 @@ namespace dark {
         }
     }
 
-    enum class TokenColor: std::uint8_t {
-        Default = 0,
-        Black,
-        Red,
-        Green,
-        Yellow,
-        Blue,
-        Magenta,
-        Cyan,
-        White,
-    };
-
     struct DiagnosticTokenInfo {
         // INFO: Do not change the order of the members since `DiagnosticLineTokenBuilder` relies
         // on this order.
@@ -68,8 +57,8 @@ namespace dark {
         dsize_t column_number{}; // 1-based; 0 is invalid
         // Absolute marker
         Span marker{};
-        TokenColor text_color{ TokenColor::Default };
-        TokenColor bg_color{ TokenColor::Default };
+        Color text_color{ Color::Current };
+        Color bg_color{ Color::Current };
         bool bold{false};
         bool italic{false};
 
@@ -342,34 +331,6 @@ struct std::formatter<dark::DiagnosticOperationKind> {
 
     auto format(dark::DiagnosticOperationKind const& o, auto& ctx) const {
         return std::format_to(ctx.out(), "{}", dark::to_string(o));
-    }
-};
-
-template <>
-struct std::formatter<dark::TokenColor> {
-    constexpr auto parse(auto& ctx) {
-        auto it = ctx.begin();
-        while (it != ctx.end()) {
-            if (*it == '}') break;
-            ++it;
-        }
-        return it;
-    }
-
-    auto format(dark::TokenColor const& c, auto& ctx) const {
-        auto name = "";
-        switch (c) {
-        case dark::TokenColor::Default: name = "Default"; break;
-        case dark::TokenColor::Black: name = "Black"; break;
-        case dark::TokenColor::Red: name = "Red"; break;
-        case dark::TokenColor::Green: name = "Green"; break;
-        case dark::TokenColor::Yellow: name = "Yellow"; break;
-        case dark::TokenColor::Blue: name = "Blue"; break;
-        case dark::TokenColor::Magenta: name = "Magenta"; break;
-        case dark::TokenColor::Cyan: name = "Cyan"; break;
-        case dark::TokenColor::White: name = "White"; break;
-        }
-        return std::format_to(ctx.out(), "{}", name);
     }
 };
 

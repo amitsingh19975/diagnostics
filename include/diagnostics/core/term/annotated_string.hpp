@@ -11,8 +11,8 @@
 namespace dark::term {
 
     struct SpanStyle {
-        std::optional<Terminal::Color> text_color{};
-        std::optional<Terminal::Color> bg_color{};
+        std::optional<Color> text_color{};
+        std::optional<Color> bg_color{};
         std::optional<bool> bold{};
         std::optional<bool> dim{};
         std::optional<bool> strike{};
