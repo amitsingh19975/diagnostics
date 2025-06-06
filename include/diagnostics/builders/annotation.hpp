@@ -34,6 +34,16 @@ namespace dark::builder {
             return *this;
         }
 
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Note,
+                std::move(message),
+                {},
+                spans
+            );
+            return *this;
+        }
+
         [[nodiscard("Missing `end_annotation()` call")]] auto note(core::CowString message, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Note,
@@ -50,6 +60,17 @@ namespace dark::builder {
                 std::move(message),
                 {},
                 spans...
+            );
+            return *this;
+        }
+
+        template <detail::IsSpan... Ss>
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Error,
+                std::move(message),
+                {},
+                spans
             );
             return *this;
         }
@@ -74,6 +95,16 @@ namespace dark::builder {
             return *this;
         }
 
+        [[nodiscard("Missing `end_annotation()` call")]] auto remark(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Remark,
+                std::move(message),
+                {},
+                spans
+            );
+            return *this;
+        }
+
         [[nodiscard("Missing `end_annotation()` call")]] auto remark(core::CowString message, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Remark,
@@ -90,6 +121,16 @@ namespace dark::builder {
                 std::move(message),
                 {},
                 spans...
+            );
+            return *this;
+        }
+
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Warning,
+                std::move(message),
+                {},
+                spans
             );
             return *this;
         }
@@ -116,6 +157,20 @@ namespace dark::builder {
                 .message = std::move(message),
                 .tokens = std::move(tokens),
                 .spans = { spans... },
+                .level = level
+            });
+        }
+
+        auto annotate_helper(
+            DiagnosticLevel level,
+            core::CowString message,
+            DiagnosticSourceLocationTokens tokens,
+            std::span<Span> spans
+        ) -> void {
+            m_builder->m_diagnostic.annotations.push_back(DiagnosticMessage {
+                .message = std::move(message),
+                .tokens = std::move(tokens),
+                .spans = { spans },
                 .level = level
             });
         }
