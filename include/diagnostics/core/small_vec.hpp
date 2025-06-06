@@ -6,7 +6,6 @@
 #include <initializer_list>
 #include <iterator>
 #include <memory>
-#include <memory_resource>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -91,6 +90,12 @@ namespace dark::core {
         }
 
         SmallVec(std::initializer_list<T> li)
+            : SmallVec(li.size())
+        {
+            std::move(li.begin(), li.end(), begin());
+        }
+
+        SmallVec(std::span<T> li)
             : SmallVec(li.size())
         {
             std::move(li.begin(), li.end(), begin());
