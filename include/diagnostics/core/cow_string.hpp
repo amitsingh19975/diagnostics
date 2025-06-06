@@ -33,6 +33,7 @@ namespace dark::core {
         using reverse_iterator = std::reverse_iterator<iterator>;
         using const_reverse_iterator = std::reverse_iterator<const_iterator>;
         using difference_type = std::ptrdiff_t;
+        static constexpr auto npos = std::string_view::npos;
 
         struct OwnedTag{};
         struct BorrowedTag{};
@@ -155,6 +156,15 @@ namespace dark::core {
 
         constexpr operator std::string_view() const noexcept {
             return to_borrowed();
+        }
+
+        constexpr auto find(std::string_view sep) const noexcept -> size_type {
+            return to_borrowed().find(sep);
+        }
+
+        auto substr(size_type pos = 0, size_type n = npos) const -> CowString {
+            if (is_owned()) return CowString(as_owned().substr(pos, n));
+            else return CowString(as_borrowed().substr(pos, n));
         }
     private:
         auto as_owned() -> std::string& {
