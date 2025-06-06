@@ -24,7 +24,9 @@ namespace dark {
         Remark = 0,
         Note,
         Warning,
-        Error
+        Error,
+        Insert,
+        Delete
     };
 
     [[nodiscard]] static inline constexpr auto to_string(DiagnosticLevel level) noexcept -> std::string_view {
@@ -33,20 +35,8 @@ namespace dark {
             case DiagnosticLevel::Warning: return "warning";
             case DiagnosticLevel::Note: return "note";
             case DiagnosticLevel::Remark: return "remark";
-        }
-    }
-
-    enum class DiagnosticOperationKind: std::uint8_t {
-        None,
-        Insert,
-        Delete,
-    };
-
-    [[nodiscard]] static inline constexpr auto to_string(DiagnosticOperationKind op) noexcept -> std::string_view {
-        switch (op) {
-            case DiagnosticOperationKind::None: return "none";
-            case DiagnosticOperationKind::Insert: return "insert";
-            case DiagnosticOperationKind::Delete: return "delete";
+            case DiagnosticLevel::Insert: return "insert";
+            case DiagnosticLevel::Delete: return "delete";
         }
     }
 
@@ -241,7 +231,6 @@ namespace dark {
         DiagnosticSourceLocationTokens tokens{};
         core::SmallVec<Span, 1> spans{};
         DiagnosticLevel level{};
-        DiagnosticOperationKind op{};
     };
 
     struct Diagnostic {
@@ -266,6 +255,8 @@ namespace dark {
 } // namespace dark
 
 #include "builders/token.hpp"
+#include "builders/diagnostic.hpp"
+#include "builders/annotation.hpp"
 
 namespace dark {
 
@@ -316,22 +307,6 @@ struct std::formatter<dark::DiagnosticLevel> {
 
     auto format(dark::DiagnosticLevel const& l, auto& ctx) const {
         return std::format_to(ctx.out(), "{}", dark::to_string(l));
-    }
-};
-
-template <>
-struct std::formatter<dark::DiagnosticOperationKind> {
-    constexpr auto parse(auto& ctx) {
-        auto it = ctx.begin();
-        while (it != ctx.end()) {
-            if (*it == '}') break;
-            ++it;
-        }
-        return it;
-    }
-
-    auto format(dark::DiagnosticOperationKind const& o, auto& ctx) const {
-        return std::format_to(ctx.out(), "{}", dark::to_string(o));
     }
 };
 
@@ -411,7 +386,7 @@ struct std::formatter<dark::DiagnosticMessage> {
     }
 
     auto format(dark::DiagnosticMessage const& m, auto& ctx) const {
-        return std::format_to(ctx.out(), "DiagnosticMessage(message='{}', tokens={}, spans={}, level={}, op={})", m.message, m.tokens, std::span(m.spans), m.level, m.op);
+        return std::format_to(ctx.out(), "DiagnosticMessage(message='{}', tokens={}, spans={}, level={})", m.message, m.tokens, std::span(m.spans), m.level);
     }
 };
 

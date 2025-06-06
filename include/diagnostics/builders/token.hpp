@@ -32,7 +32,7 @@ namespace dark::builder {
          * @param marker_len length of the marker; (column_number - 1, marker_len]
          */
         [[nodiscard("Missing `build()` call")]] auto add_text(
-            std::string_view text,
+            core::CowString text,
             dsize_t line_number,
             dsize_t line_start_offset,
             dsize_t column_number,
@@ -42,7 +42,7 @@ namespace dark::builder {
             do {
                 auto txt = text.substr(0, it);
                 auto newline_offset = dsize_t{};
-                if (it != std::string_view::npos) {
+                if (it != core::CowString::npos) {
                     text = text.substr(it + 1);
                     it = text.find("\n");
                     newline_offset = 1;
@@ -197,4 +197,4 @@ namespace dark::builder {
         return DiagnosticLineTokenBuilder(m_tokens.lines.size() - 1, *this);
     }
 } // namespace dark::builder
-#endif // AMT_DARK_DIAGNOSTICS_BUILDER_TOKEN_HPP
+#endif // AMT_DARK_DIAGNO

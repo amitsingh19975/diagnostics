@@ -2,7 +2,6 @@
 #define AMT_DARK_DIAGNOSTICS_BUILDERS_DIAGNOSTIC_HPP
 
 #include "../forward.hpp"
-#include "../basic.hpp"
 #include "../core/format.hpp"
 #include <cassert>
 

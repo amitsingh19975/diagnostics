@@ -3,9 +3,6 @@
 
 #include "diagnostic.hpp"
 #include "../span.hpp"
-#include "diagnostics/basic.hpp"
-#include "diagnostics/builders/annotated_string.hpp"
-#include "diagnostics/core/term/annotated_string.hpp"
 
 namespace dark::builder {
     template <typename LocT>
@@ -26,8 +23,18 @@ namespace dark::builder {
         }
 
         // MARK: Note section
+
+        /**
+         * @brief Note annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto note(core::CowString message, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            core::CowString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Note,
                 std::move(message),
@@ -37,18 +44,35 @@ namespace dark::builder {
             return *this;
         }
 
+        /**
+         * @brief Note annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto note(term::AnnotatedString annotation, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            term::AnnotatedString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Note,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans...
             );
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto note(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Note annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            core::CowString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Note,
                 std::move(message),
@@ -58,17 +82,33 @@ namespace dark::builder {
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto note(term::AnnotatedString annotation, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Note annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            term::AnnotatedString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Note,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans
             );
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto note(core::CowString message, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Note annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            core::CowString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Note,
                 std::move(message),
@@ -77,10 +117,18 @@ namespace dark::builder {
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto note(term::AnnotatedString annotation, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Note annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            term::AnnotatedString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Note,
-                std::move(annotation),
+                std::move(message),
                 std::move(suggestion)
             );
             return *this;
@@ -88,8 +136,18 @@ namespace dark::builder {
 
 
         // MARK: Error
+
+        /**
+         * @brief Error annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto error(core::CowString message, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            core::CowString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Error,
                 std::move(message),
@@ -99,19 +157,36 @@ namespace dark::builder {
             return *this;
         }
 
+        /**
+         * @brief Error annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto error(term::AnnotatedString annotation, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            term::AnnotatedString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Error,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans...
             );
             return *this;
         }
 
+        /**
+         * @brief Error annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto error(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            core::CowString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Error,
                 std::move(message),
@@ -121,18 +196,34 @@ namespace dark::builder {
             return *this;
         }
 
+        /**
+         * @brief Error annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto error(term::AnnotatedString annotation, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            term::AnnotatedString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Error,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans
             );
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto error(core::CowString message, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Error annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            core::CowString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Error,
                 std::move(message),
@@ -141,10 +232,18 @@ namespace dark::builder {
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto error(term::AnnotatedString annotation, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Error annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            term::AnnotatedString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Error,
-                std::move(annotation),
+                std::move(message),
                 std::move(suggestion)
             );
             return *this;
@@ -152,8 +251,18 @@ namespace dark::builder {
 
 
         // MARK: Remark
+
+        /**
+         * @brief Remark annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto remark(core::CowString message, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto remark(
+            core::CowString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Remark,
                 std::move(message),
@@ -163,18 +272,35 @@ namespace dark::builder {
             return *this;
         }
 
+        /**
+         * @brief Remark annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto remark(term::AnnotatedString annotation, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto remark(
+            term::AnnotatedString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Remark,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans...
             );
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto remark(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Remark annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto remark(
+            core::CowString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Remark,
                 std::move(message),
@@ -184,10 +310,18 @@ namespace dark::builder {
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto remark(term::AnnotatedString annotation, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Remark annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto remark(
+            term::AnnotatedString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Remark,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans
             );
@@ -195,7 +329,15 @@ namespace dark::builder {
         }
 
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto remark(core::CowString message, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Remark annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto remark(
+            core::CowString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Remark,
                 std::move(message),
@@ -204,10 +346,18 @@ namespace dark::builder {
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto remark(term::AnnotatedString annotation, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Remark annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto remark(
+            term::AnnotatedString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Remark,
-                std::move(annotation),
+                std::move(message),
                 std::move(suggestion)
             );
             return *this;
@@ -215,8 +365,18 @@ namespace dark::builder {
 
 
         // MARK: Warn
+
+        /**
+         * @brief Warning annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto warn(core::CowString message, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            core::CowString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Warning,
                 std::move(message),
@@ -226,18 +386,35 @@ namespace dark::builder {
             return *this;
         }
 
+        /**
+         * @brief Warning annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
         template <detail::IsSpan... Ss>
-        [[nodiscard("Missing `end_annotation()` call")]] auto warn(term::AnnotatedString annotation, Ss&&... spans) -> DiagnosticAnnotationBuilder {
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            term::AnnotatedString message,
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Warning,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans...
             );
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto warn(core::CowString message, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Warning annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            core::CowString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Warning,
                 std::move(message),
@@ -247,17 +424,33 @@ namespace dark::builder {
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto warn(term::AnnotatedString annotation, std::span<Span> spans) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Warning annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            term::AnnotatedString message,
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Warning,
-                std::move(annotation),
+                std::move(message),
                 {},
                 spans
             );
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto warn(core::CowString message, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Warning annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            core::CowString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Warning,
                 std::move(message),
@@ -266,16 +459,188 @@ namespace dark::builder {
             return *this;
         }
 
-        [[nodiscard("Missing `end_annotation()` call")]] auto warn(term::AnnotatedString annotation, DiagnosticSourceLocationTokens suggestion) -> DiagnosticAnnotationBuilder {
+        /**
+         * @brief Warning annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
+         * @param message The message for marked token.
+         * @param suggestion The collection of tokens that will be rendered at the end of the diagnostics.
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            term::AnnotatedString message,
+            DiagnosticSourceLocationTokens suggestion
+        ) -> DiagnosticAnnotationBuilder {
             annotate_helper(
                 DiagnosticLevel::Warning,
-                std::move(annotation),
+                std::move(message),
                 std::move(suggestion)
             );
             return *this;
         }
 
+        // MARK: Insert
 
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param text The text to be inserted
+         * @param offset The offset starting from the start of the source text.
+         * @param message The message to displayed for the inserted text.
+         */
+        auto insert(
+            core::CowString text,
+            dsize_t offset,
+            core::CowString message = {}
+        ) -> DiagnosticAnnotationBuilder {
+            auto span = Span::from_size(offset, static_cast<dsize_t>(text.size()));
+            annotate_helper(
+                DiagnosticLevel::Insert,
+                std::move(message),
+                DiagnosticSourceLocationTokens::builder()
+                    .add_text(text, 0, 0, 0, span.size())
+                .build(),
+                span
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param text The text to be inserted
+         * @param offset The offset starting from the start of the source text.
+         * @param message The message to displayed for the inserted text.
+         */
+        auto insert(
+            core::CowString text,
+            dsize_t offset,
+            AnnotatedString message = {}
+        ) -> DiagnosticAnnotationBuilder {
+            auto span = Span::from_size(offset, static_cast<dsize_t>(text.size()));
+            annotate_helper(
+                DiagnosticLevel::Insert,
+                std::move(message),
+                DiagnosticSourceLocationTokens::builder()
+                    .add_text(text, 0, 0, 0, span.size())
+                .build(),
+                span
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param tokens The tokens to be inserted
+         * @param offset The offset starting from the start of the source text.
+         * @param message The message to displayed for the inserted tokens.
+         */
+        auto insert(
+            DiagnosticSourceLocationTokens tokens,
+            dsize_t offset,
+            core::CowString message = {}
+        ) -> DiagnosticAnnotationBuilder {
+            auto span = Span::from_size(offset, tokens.rel_span().size());
+            annotate_helper(
+                DiagnosticLevel::Insert,
+                std::move(message),
+                std::move(tokens),
+                span
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param tokens The tokens to be inserted
+         * @param offset The offset starting from the start of the source text.
+         * @param message The message to displayed for the inserted tokens.
+         */
+        auto insert(
+            DiagnosticSourceLocationTokens tokens,
+            dsize_t offset,
+            AnnotatedString message = {}
+        ) -> DiagnosticAnnotationBuilder {
+            auto span = Span::from_size(offset, tokens.rel_span().size());
+            annotate_helper(
+                DiagnosticLevel::Insert,
+                std::move(message),
+                std::move(tokens),
+                span
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param tokens The tokens to be inserted
+         * @param offset The offset starting from the start of the source text.
+         * @param message The message to displayed for the inserted tokens.
+         */
+        auto insert(
+            DiagnosticSourceLocationTokens tokens,
+            core::CowString message = {}
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Insert,
+                std::move(message),
+                std::move(tokens),
+                tokens.span()
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param tokens The tokens to be inserted
+         * @param offset The offset starting from the start of the source text.
+         * @param message The message to displayed for the inserted tokens.
+         */
+        auto insert(
+            DiagnosticSourceLocationTokens tokens,
+            AnnotatedString message = {}
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Insert,
+                std::move(message),
+                std::move(tokens),
+                tokens.span()
+            );
+            return *this;
+        }
+
+        // MARK: Delete
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param message The message to displayed for the removed tokens.
+         * @param span The span to the text to be removed.
+         */
+        auto remove(
+            core::CowString message,
+            Span span
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Delete,
+                std::move(message),
+                {},
+                span
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param message The message to displayed for the removed tokens.
+         * @param span The span to the text to be removed.
+         */
+        auto remove(
+            AnnotatedString message,
+            Span span
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Delete,
+                std::move(message),
+                {},
+                span
+            );
+            return *this;
+        }
     private:
         template <detail::IsSpan... Ss>
         auto annotate_helper(
@@ -306,6 +671,20 @@ namespace dark::builder {
             });
         }
 
+        auto annotate_helper(
+            DiagnosticLevel level,
+            term::AnnotatedString&& an,
+            DiagnosticSourceLocationTokens tokens,
+            Span span
+        ) -> void {
+            m_builder->m_diagnostic.annotations.push_back(DiagnosticMessage {
+                .message = std::move(an),
+                .tokens = std::move(tokens),
+                .spans = { span },
+                .level = level,
+            });
+        }
+
         template <detail::IsSpan... Ss>
         auto annotate_helper(
             DiagnosticLevel level,
@@ -314,15 +693,6 @@ namespace dark::builder {
             Ss&&... spans
         ) -> void {
             annotate_helper(level, AnnotatedString::builder().push(std::move(message)).build(), std::move(tokens), spans...);
-        }
-
-        auto annotate_helper(
-            DiagnosticLevel level,
-            core::CowString message,
-            DiagnosticSourceLocationTokens tokens,
-            std::span<Span> spans
-        ) -> void {
-            annotate_helper(level, AnnotatedString::builder().push(std::move(message)).build(), std::move(tokens), spans);
         }
     private:
         DiagnosticBuilder<LocT>* m_builder;
