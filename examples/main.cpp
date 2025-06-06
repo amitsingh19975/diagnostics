@@ -1,24 +1,9 @@
 #include <cassert>
 #include <format>
-#include <numeric>
 #include <print>
 #include <cstdlib>
-#include <sstream>
 
-#include "diagnostics/consumer.hpp"
-#include "diagnostics/converter.hpp"
-#include "diagnostics/core/config.hpp"
-#include "diagnostics/core/cow_string.hpp"
-#include "diagnostics/core/format.hpp"
-#include "diagnostics/core/small_vec.hpp"
-#include "diagnostics/core/term/annotated_string.hpp"
-#include "diagnostics/core/term/basic.hpp"
-#include "diagnostics/core/term/canvas.hpp"
-#include "diagnostics/core/term/terminal.hpp"
-#include "diagnostics/core/utf8.hpp"
-#include "diagnostics/basic.hpp"
-#include "diagnostics/emitter.hpp"
-#include "diagnostics/builders/annotation.hpp"
+#include "diagnostics.hpp"
 
 struct foo {
     int v {};
@@ -88,7 +73,7 @@ struct TestConverter: DiagnosticConverter<unsigned> {
     }
 };
 
-int main2() {
+int main() {
     auto base = dark_make_diagnostic(0, "{}", int);
     auto consumer = ConsoleDiagnosticConsumer();
     auto converter = TestConverter();
@@ -99,6 +84,7 @@ int main2() {
     emitter.error(2, base, 4)
         .begin_annotation()
             .error("unknown method found")
+            .note("", Span())
         .end_annotation()
         .emit();
     //d.error(base, 4)
@@ -120,7 +106,7 @@ int main2() {
     return 0;
 }
 
-int main() {
+int main2() {
 
     auto s = dark::Terminal(stdout, Terminal::ColorMode::Enable);
     auto canvas = term::Canvas(60);
