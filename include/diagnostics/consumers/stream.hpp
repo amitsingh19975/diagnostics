@@ -4,7 +4,7 @@
 #include "base.hpp"
 #include "../core/term/terminal.hpp"
 #include "../core/term/config.hpp"
-#include "diagnostics/renderer.hpp"
+#include "../renderer.hpp"
 #include <cassert>
 
 #ifdef DARK_OS_UNIX
@@ -51,8 +51,12 @@ namespace dark {
             core::term::detail::native_handle_t m_handle;
         };
     public:
-        explicit constexpr StreamDiagnosticConsumer(FILE* file) noexcept
+        explicit constexpr StreamDiagnosticConsumer(
+            FILE* file,
+            DiagnosticRenderConfig config = {}
+        ) noexcept
             : m_out(file)
+            , m_config(config)
         {}
         constexpr StreamDiagnosticConsumer(StreamDiagnosticConsumer const&) noexcept = default;
         constexpr StreamDiagnosticConsumer(StreamDiagnosticConsumer &&) noexcept = default;
@@ -62,7 +66,7 @@ namespace dark {
 
         auto consume(Diagnostic&& d) -> void override {
             FileLock lock(m_out);
-            internal::render_diagnostic(m_out, d);
+            internal::render_diagnostic(m_out, d, m_config);
         }
 
         auto flush() -> void override { m_out.flush(); }
@@ -71,11 +75,14 @@ namespace dark {
 
     private:
         Terminal m_out;
+        DiagnosticRenderConfig m_config{};
         bool m_has_printed{false};
     };
 
-    static inline auto ConsoleDiagnosticConsumer() -> DiagnosticConsumer* {
-        static auto* consumer = new StreamDiagnosticConsumer(stderr);
+    static inline auto ConsoleDiagnosticConsumer(
+        DiagnosticRenderConfig config = {}
+    ) -> DiagnosticConsumer* {
+        static auto* consumer = new StreamDiagnosticConsumer(stderr, config);
         return consumer;
     }
 } // namespace dark
