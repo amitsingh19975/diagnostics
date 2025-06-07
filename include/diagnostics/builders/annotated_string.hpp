@@ -17,6 +17,21 @@ namespace dark::builder {
             return *this;
         }
 
+        [[nodiscard("Missing 'build()' call")]] auto push(AnnotatedString const& a) -> AnnotatedStringBuilder& {
+            for (auto const& [s, st]: a.strings) {
+                m_an.push(s, st);
+            }
+            return *this;
+        }
+
+        [[nodiscard("Missing 'build()' call")]] auto push(AnnotatedString&& a) -> AnnotatedStringBuilder& {
+            for (auto& [s, st]: a.strings) {
+                m_an.push(std::move(s), std::move(st));
+            }
+            a.strings.clear();
+            return *this;
+        }
+
         [[nodiscard("Missing 'build()' call")]] constexpr auto with_style(term::SpanStyle style) -> WithStyleBuilder;
 
         auto build() -> term::AnnotatedString&& { return std::move(m_an); }
@@ -43,7 +58,22 @@ namespace dark::builder {
             return *this;
         }
 
-       [[nodiscard("Missing 'build()' call")]]  auto with_style(term::SpanStyle style) -> WithStyleBuilder {
+        [[nodiscard("Missing 'build()' call")]] auto push(AnnotatedString const& a) -> WithStyleBuilder {
+            for (auto const& [s, st]: a.strings) {
+                m_builder->m_an.push(s, st);
+            }
+            return *this;
+        }
+
+        [[nodiscard("Missing 'build()' call")]] auto push(AnnotatedString&& a) -> WithStyleBuilder {
+            for (auto& [s, st]: a.strings) {
+                m_builder->m_an.push(std::move(s), std::move(st));
+            }
+            a.strings.clear();
+            return *this;
+        }
+
+        [[nodiscard("Missing 'build()' call")]]  auto with_style(term::SpanStyle style) -> WithStyleBuilder {
             return { std::move(style), *m_builder };
         }
 
