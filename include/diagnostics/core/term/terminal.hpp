@@ -109,6 +109,14 @@ namespace dark {
             auto new_style = std::make_tuple(style, text_color, bg_color);
 
             if (m_current_style == new_style) return *this;
+            auto old_style = std::get<0>(m_current_style);
+            auto has_attribute_changed = (
+                (old_style.bold != style.bold) ||
+                (old_style.dim != style.dim) ||
+                (old_style.italic != style.italic) ||
+                (old_style.strike != style.strike)
+            );
+            if (has_attribute_changed) reset_color();
             auto should_render_bg_color = std::get<2>(m_current_style) != bg_color;
             auto should_render_text_color = std::get<1>(m_current_style) != text_color;
             m_current_style = new_style;
