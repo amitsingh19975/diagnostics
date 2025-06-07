@@ -1022,7 +1022,7 @@ namespace dark::term {
                     np.left = 0;
                     as.update_padding(start, np);
 
-                    if (tmp_x + padding.right >= size + x) {
+                    if (tmp_x + padding.right >= size) {
                         break;
                     }
 
