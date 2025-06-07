@@ -44,6 +44,12 @@ namespace dark::term {
         start_ellipsis
     };
 
+    enum class TextAlign {
+        Left,
+        Center,
+        Right
+    };
+
     struct TextStyle {
         Color text_color{ Color::Default };
         Color bg_color{ Color::Default };
@@ -53,11 +59,12 @@ namespace dark::term {
         bool italic{false};
         unsigned groupId{};
         int zIndex{};
-        bool word_wrap{};
+        bool word_wrap{true};
         bool break_whitespace{};
+        unsigned max_lines{ std::numeric_limits<unsigned>::max() };
         unsigned max_width{ std::numeric_limits<unsigned>::max() };
         PaddingValues padding{};
-        unsigned max_lines{ std::numeric_limits<unsigned>::max() };
+        TextAlign align{ TextAlign::Left };
         TextOverflow overflow{ TextOverflow::none };
         bool trim_prefix{false};
 

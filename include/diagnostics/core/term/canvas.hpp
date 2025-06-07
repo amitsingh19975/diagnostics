@@ -810,7 +810,13 @@ namespace dark::term {
             ); 
             // |....[----space----]|
 
-            max_space = std::max<size_type>(padding.horizontal(), max_space) - padding.horizontal();
+            auto container = BoundingBox {
+                .x = x + padding.left,
+                .y = y + padding.top,
+                .width = std::max(static_cast<dsize_t>(max_space), padding.right) - padding.right,
+                .height = 0
+            };
+            max_space = container.width;
 
             auto bbox = BoundingBox(x, y, 0, 0);
             if (max_space == 0) return { bbox, as.size() };
@@ -828,6 +834,7 @@ namespace dark::term {
                     x,
                     y,
                     size,
+                    container,
                     style
                 );
 
@@ -848,13 +855,14 @@ namespace dark::term {
                 current_line += 1;
 
                 max_x = std::max(max_x, x);
-                x = bbox.x + padding.left;
+                x = container.x;
 
                 auto old_size = as.size();
                 auto [consumed, bottom_padding] = draw_text_helper(
                     as,
                     x, y,
                     max_space,
+                    container,
                     style,
                     current_line
                 );
@@ -866,7 +874,7 @@ namespace dark::term {
                 y += 1;
                 if (current_line == style.max_lines) break;
             }
-            x = std::min(std::max(max_x, x) + padding.right, static_cast<dsize_t>(cols() - 1));
+            x = std::min(std::max(max_x, x), container.width) + padding.right;
             y += padding.bottom;
 
             return { BoundingBox(bbox.x, bbox.y, x, y), as.size() };
@@ -941,6 +949,7 @@ namespace dark::term {
             dsize_t& x,
             dsize_t y,
             size_type size,
+            BoundingBox container,
             TextStyle style = {},
             dsize_t current_line = 1,
             size_type max_as_size = std::numeric_limits<size_type>::max()
@@ -994,7 +1003,7 @@ namespace dark::term {
                     }
                 }
 
-                for (; start < end && (tmp_x < size + x); ++start, ++total_consumed) {
+                for (; start < end && (tmp_x < size); ++start, ++total_consumed) {
                     auto [ch, span_style, marker] = as[start];
                     if (as.is_word_end(start)) {
                         stored_state = State {
@@ -1013,9 +1022,10 @@ namespace dark::term {
                     np.left = 0;
                     as.update_padding(start, np);
 
-                    if (tmp_x >= size + x) {
+                    if (tmp_x + padding.right >= size + x) {
                         break;
                     }
+
                     bottom_padding = std::max(
                         padding.bottom,
                         bottom_padding
@@ -1046,7 +1056,7 @@ namespace dark::term {
                     tmp_x = stored_state.x;
                     bottom_padding = stored_state.bottom_padding;
                     top_padding = stored_state.top_padding;
-                    for (auto i = tmp_x; i < size + x; ++i) temp_buff[i] = {};
+                    for (auto i = tmp_x; i < size; ++i) temp_buff[i] = {};
                 }
 
                 if (current_line == 1) {
@@ -1107,10 +1117,18 @@ namespace dark::term {
 
             y += top_padding;
 
+            auto start_offset = 0u;
+            auto space_left = (std::max(static_cast<dsize_t>(container.width), tmp_x) - tmp_x);
+            if (style.align == TextAlign::Center) {
+                start_offset += space_left / 2;
+            } else if (style.align == TextAlign::Right) {
+                start_offset += space_left;
+            }
+
             for (; start_x < tmp_x; ++start_x) {
                 auto [ch, st, marker] = temp_buff[start_x];
                 draw_pixel(
-                    start_x,
+                    start_x + start_offset,
                     y,
                     ch,
                     st.to_style(style)
@@ -1125,7 +1143,7 @@ namespace dark::term {
                 }
             }
 
-            x = tmp_x;
+            x = tmp_x + start_offset;
             return { total_consumed, bottom_padding + top_padding };
         }
 
