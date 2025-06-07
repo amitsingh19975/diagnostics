@@ -649,7 +649,8 @@ namespace dark::builder {
             DiagnosticSourceLocationTokens tokens,
             Ss&&... spans
         ) -> void {
-            m_builder->m_diagnostic.annotations.push_back(DiagnosticMessage {
+            auto& annotations = m_builder->m_diagnostic.annotations;
+            annotations.push_back(DiagnosticMessage {
                 .message = std::move(an),
                 .tokens = std::move(tokens),
                 .spans = { spans... },
@@ -663,7 +664,8 @@ namespace dark::builder {
             DiagnosticSourceLocationTokens tokens,
             std::span<Span> spans
         ) -> void {
-            m_builder->m_diagnostic.annotations.push_back(DiagnosticMessage {
+            auto& annotations = m_builder->m_diagnostic.annotations;
+            annotations.push_back(DiagnosticMessage {
                 .message = std::move(an),
                 .tokens = std::move(tokens),
                 .spans = { spans },
@@ -677,7 +679,8 @@ namespace dark::builder {
             DiagnosticSourceLocationTokens tokens,
             Span span
         ) -> void {
-            m_builder->m_diagnostic.annotations.push_back(DiagnosticMessage {
+            auto& annotations = m_builder->m_diagnostic.annotations;
+            annotations.push_back(DiagnosticMessage {
                 .message = std::move(an),
                 .tokens = std::move(tokens),
                 .spans = { span },
