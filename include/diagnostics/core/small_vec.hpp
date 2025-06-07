@@ -26,6 +26,7 @@ namespace dark::core {
         using reverse_iterator = std::reverse_iterator<iterator>;
         using const_reverse_iterator = std::reverse_iterator<const_iterator>;
         using allocator_t = A; 
+        using alloc_trait_t = std::allocator_traits<A>; 
         using size_type = std::size_t;
         using difference_type = std::ptrdiff_t;
     private:
@@ -139,8 +140,7 @@ namespace dark::core {
             if (capacity() < size() + 1) {
                 reserve(size() + 1);
             }
-
-            new(get(m_size++)) T(val);
+            alloc_trait_t::construct(m_alloc, data() + m_size++, val);
         }
 
         auto push_back(value_type&& val) -> void {
@@ -148,7 +148,7 @@ namespace dark::core {
                 reserve(size() + 1);
             }
 
-            new(get(m_size++)) T(std::move(val));
+            alloc_trait_t::construct(m_alloc, data() + m_size++, std::move(val));
         }
 
         auto pop_back() -> void {
@@ -163,7 +163,7 @@ namespace dark::core {
             if (capacity() < size() + 1) {
                 reserve(size() + 1);
             }
-            new(get(m_size++)) T(std::forward<Args>(args)...);
+            alloc_trait_t::construct(m_alloc, data() + m_size++, std::forward<Args>(args)...);
         }
 
 
@@ -273,7 +273,6 @@ namespace dark::core {
             if (n == size()) return;
 
             reserve(n);
-
             m_size = n;
 
             for (auto it = begin() + n; it != end(); ++it) {
