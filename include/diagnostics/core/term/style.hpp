@@ -80,6 +80,15 @@ namespace dark::term {
                 .zIndex = zIndex,
             };
         }
+
+        static constexpr auto default_header_style() noexcept -> TextStyle {
+            return {
+                .bold = true,
+                .word_wrap = false,
+                .overflow = TextOverflow::ellipsis,
+                .trim_prefix = true
+            };
+        }
     };
 } // namespace dark::term
 

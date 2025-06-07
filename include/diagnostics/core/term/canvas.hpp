@@ -827,13 +827,12 @@ namespace dark::term {
             auto max_x = x;
 
             if (!style.word_wrap) {
-                auto size = std::min(as.size(), max_space);
                 style.max_lines = 1;
                 auto [consumed, bottom_padding] = draw_text_helper(
                     as,
                     x,
                     y,
-                    size,
+                    max_space,
                     container,
                     style
                 );
@@ -880,7 +879,7 @@ namespace dark::term {
             return { BoundingBox(bbox.x, bbox.y, x, y), as.size() };
         }
 
-        constexpr auto draw_boxed_text(
+        auto draw_boxed_text(
             std::string_view text,
             dsize_t x,
             dsize_t y,
@@ -888,13 +887,19 @@ namespace dark::term {
             BoxCharSet normal_set = char_set::box::rounded,
             BoxCharSet bold_set = char_set::box::rounded_bold
         ) noexcept -> TextRenderResult {
-            auto as = AnnotatedString();
-            as.push(text);
-            return draw_boxed_text(as, x, y, style, normal_set, bold_set);
+            return draw_boxed_text(
+                AnnotatedString::builder()
+                    .push(text)
+                    .build(),
+                x, y,
+                style,
+                normal_set,
+                bold_set
+            );
         }
 
         constexpr auto draw_boxed_text(
-            AnnotatedString as,
+            AnnotatedString text,
             dsize_t x,
             dsize_t y,
             TextStyle style = {},
@@ -903,14 +908,120 @@ namespace dark::term {
         ) noexcept -> TextRenderResult {
             style.max_width = std::min(dsize_t(cols() - 2), style.max_width);
             auto [bbox, left] = draw_text(
-                std::move(as),
+                std::move(text),
                 x + 1, y + 1,
                 style
             );
+            auto box = draw_box(x, y, bbox.width, bbox.height, style.to_style(), normal_set, bold_set);
             return {
-                draw_box(x, y, bbox.width, bbox.height, style.to_style(), normal_set, bold_set),
+                box,
                 left
             };
+        }
+
+        constexpr auto draw_boxed_text_with_header(
+            AnnotatedString header,
+            AnnotatedString text,
+            dsize_t x,
+            dsize_t y,
+            TextStyle body_style = {},
+            TextStyle header_style = TextStyle::default_header_style(),
+            BoxCharSet normal_set = char_set::box::rounded,
+            BoxCharSet bold_set = char_set::box::rounded_bold
+        ) noexcept -> TextRenderResult {
+            auto [box, result] = draw_boxed_text(
+                std::move(text),
+                x, y,
+                std::move(body_style),
+                normal_set,
+                bold_set
+            );
+
+            if (!header.strings.empty()) {
+                if (header_style.text_color == Color::Default) {
+                    header_style.text_color = body_style.text_color;
+                }
+                if (header_style.bg_color == Color::Default) {
+                    header_style.bg_color = body_style.bg_color;
+                }
+
+                header_style.max_width = std::min(
+                    header_style.max_width,
+                    box.width - 1
+                );
+
+                draw_text(
+                    std::move(header),
+                    box.x + 1,
+                    box.y,
+                    std::move(header_style)
+                );
+            }
+
+            return { box, result };
+        }
+
+        auto draw_boxed_text_with_header(
+            std::string_view header,
+            std::string_view text,
+            dsize_t x,
+            dsize_t y,
+            TextStyle body_style = {},
+            TextStyle header_style = TextStyle::default_header_style(),
+            BoxCharSet normal_set = char_set::box::rounded,
+            BoxCharSet bold_set = char_set::box::rounded_bold
+        ) noexcept -> TextRenderResult {
+            return draw_boxed_text_with_header(
+                AnnotatedString::builder().push(header).build(),
+                AnnotatedString::builder().push(text).build(),
+                x, y,
+                std::move(body_style),
+                std::move(header_style),
+                normal_set,
+                bold_set
+            );
+        }
+
+        auto draw_boxed_text_with_header(
+            std::string_view header,
+            AnnotatedString text,
+            dsize_t x,
+            dsize_t y,
+            TextStyle body_style = {},
+            TextStyle header_style = TextStyle::default_header_style(),
+            BoxCharSet normal_set = char_set::box::rounded,
+            BoxCharSet bold_set = char_set::box::rounded_bold
+        ) noexcept -> TextRenderResult {
+            return draw_boxed_text_with_header(
+                AnnotatedString::builder().push(header).build(),
+                std::move(text),
+                x, y,
+                std::move(body_style),
+                std::move(header_style),
+                normal_set,
+                bold_set
+            );
+        }
+
+        auto draw_boxed_text_with_header(
+            AnnotatedString header,
+            std::string_view text,
+            dsize_t x,
+            dsize_t y,
+            TextStyle body_style = {},
+            TextStyle header_style = TextStyle::default_header_style(),
+            BoxCharSet normal_set = char_set::box::rounded,
+            BoxCharSet bold_set = char_set::box::rounded_bold
+        ) noexcept -> TextRenderResult {
+            return draw_boxed_text_with_header(
+                std::move(header),
+                AnnotatedString::builder().push(text).build(),
+                x, y,
+                std::move(body_style),
+                std::move(header_style),
+                normal_set,
+                bold_set
+            );
         }
 
         constexpr auto draw_marked_text(
@@ -1078,6 +1189,7 @@ namespace dark::term {
                 case TextOverflow::ellipsis: {
                     helper(0, text_size);
 
+                    if (total_consumed >= as.size()) break;
                     auto const buff_size = (tmp_x - start_x);
                     auto dots = std::min(buff_size, 3u);
                     for (auto i = 0ul; i < dots; ++i) {
@@ -1096,6 +1208,8 @@ namespace dark::term {
                     tmp_x += 5;
                     helper(s1, e1);
 
+                    if (total_consumed >= as.size()) break;
+
                     temp_buff[e0] = { " ", {}, {} };
                     temp_buff[e0 + 1] = { ".", {}, {} };
                     temp_buff[e0 + 2] = { ".", {}, {} };
@@ -1107,10 +1221,12 @@ namespace dark::term {
                     auto mid_col = std::max(size, size_type{3}) - 3;
                     auto s0 = std::max(mid_col, total_len) - mid_col;
                     auto e0 = total_len;
-                    temp_buff[tmp_x++] = { ".", {}, {} };
-                    temp_buff[tmp_x++] = { ".", {}, {} };
-                    temp_buff[tmp_x++] = { ".", {}, {} };
                     helper(s0, e0);
+                    if (total_consumed >= as.size()) break;
+
+                    temp_buff[tmp_x++] = { ".", {}, {} };
+                    temp_buff[tmp_x++] = { ".", {}, {} };
+                    temp_buff[tmp_x++] = { ".", {}, {} };
                 } break;
                 }
             }
