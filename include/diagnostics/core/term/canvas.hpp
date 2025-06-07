@@ -964,7 +964,7 @@ namespace dark::term {
 
             auto helper = [
                 &total_consumed,
-                &as, &tmp_x, x,
+                &as, &tmp_x,
                 size, &temp_buff,
                 &bottom_padding,
                 &top_padding,
