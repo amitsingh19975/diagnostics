@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <concepts>
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <format>
 #include <type_traits>
@@ -213,6 +214,15 @@ struct std::formatter<dark::Span> {
 
     auto format(dark::Span const& s, auto& ctx) const {
         return std::format_to(ctx.out(), "Span(start={}, end={}, size={})", s.start(), s.end(), s.size());
+    }
+};
+
+template <>
+struct std::hash<dark::Span> {
+    constexpr auto operator()(dark::Span const& s) noexcept -> std::size_t {
+        auto h0 = std::hash<dark::dsize_t>{}(s.start());
+        auto h1 = std::hash<dark::dsize_t>{}(s.size());
+        return h0 ^ (h1 << 1);
     }
 };
 
