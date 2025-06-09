@@ -32,6 +32,8 @@ namespace dark::term {
                 .italic = strike.value_or(parent_style.italic)
             };
         }
+
+        constexpr auto operator==(SpanStyle const&) const noexcept -> bool = default;
     };
 
     struct AnnotatedString {
@@ -63,6 +65,7 @@ namespace dark::term {
         }
 
         auto build_indices() const -> void {
+            m_cached_index.clear();
             m_offset = 0;
             for (auto i = 0ul; i < strings.size(); ++i) {
                 auto const& s = strings[i].first.to_borrowed();
@@ -74,7 +77,7 @@ namespace dark::term {
             }
         }
 
-        constexpr auto operator[](std::size_t k) noexcept -> std::tuple<std::string_view, SpanStyle, std::string_view> {
+        constexpr auto operator[](std::size_t k) noexcept -> std::tuple<std::string_view, SpanStyle, std::string_view, unsigned> {
             auto idx = m_offset + k;
             assert(idx < m_cached_index.size());
             auto [s_idx, c_idx, len, ridx] = m_cached_index[idx];
@@ -92,16 +95,17 @@ namespace dark::term {
             }
 
             auto marker = std::string_view{};
+            unsigned marker_padding = 0u;
             if (!style.underline_marker.empty()) {
                 auto m_text = core::utf8::PackedUTF8(style.underline_marker);
                 auto m_idx = ridx % m_text.size();
                 marker = m_text[m_idx];
-                ns.padding->bottom += static_cast<unsigned>(!marker.empty());
+                marker_padding = static_cast<unsigned>(!marker.empty());
             }
-            return { text.to_borrowed().substr(c_idx, len), ns, marker };
+            return { text.to_borrowed().substr(c_idx, len), ns, marker, marker_padding };
         }
 
-        constexpr auto operator[](std::size_t k) const noexcept -> std::tuple<std::string_view, SpanStyle, std::string_view> {
+        constexpr auto operator[](std::size_t k) const noexcept -> std::tuple<std::string_view, SpanStyle, std::string_view, unsigned> {
             auto* self = const_cast<AnnotatedString*>(this); 
             return self->operator[](k);
         }

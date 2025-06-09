@@ -843,8 +843,8 @@ namespace dark::term {
                     .bbox = BoundingBox(
                         bbox.x,
                         bbox.y,
-                        std::min(x, static_cast<dsize_t>(cols() - 1)),
-                        y
+                        std::min(x, static_cast<dsize_t>(cols() - 1)) - bbox.x,
+                        y - bbox.y
                     ),
                     .left = as.size() - consumed
                 };
@@ -866,17 +866,19 @@ namespace dark::term {
                     current_line
                 );
                 as.shift(consumed);
-                padding.bottom = std::max(padding.bottom, bottom_padding);
 
                 // Ensures no infinite loop
                 if (old_size == as.size()) break;
-                y += 1;
+                y += bottom_padding + 1;
                 if (current_line == style.max_lines) break;
             }
             x = std::min(std::max(max_x, x), container.width) + padding.right;
             y += padding.bottom;
 
-            return { BoundingBox(bbox.x, bbox.y, x, y), as.size() };
+            return {
+                BoundingBox(bbox.x, bbox.y, x - bbox.x, y - bbox.y),
+                as.size()
+            };
         }
 
         auto draw_boxed_text(
@@ -1103,8 +1105,7 @@ namespace dark::term {
 
                 if (style.trim_prefix) {
                     for (; start < end; ++start, ++total_consumed) {
-                        auto [ch, sp_style, marker] = as[start];
-                        (void)marker;
+                        [[maybe_unused]] auto [ch, sp_style, marker, mp] = as[start];
                         if (sp_style.padding) {
                             auto st = sp_style.padding.value_or(PaddingValues());
                             st.left = 0;
@@ -1115,7 +1116,7 @@ namespace dark::term {
                 }
 
                 for (; start < end && (tmp_x < size); ++start, ++total_consumed) {
-                    auto [ch, span_style, marker] = as[start];
+                    auto [ch, span_style, marker, marker_padding] = as[start];
                     if (as.is_word_end(start)) {
                         stored_state = State {
                             .start = start,
@@ -1136,11 +1137,11 @@ namespace dark::term {
                     if (tmp_x + padding.right >= size) {
                         break;
                     }
-
-                    bottom_padding = std::max(
+                    bottom_padding = std::max({
                         padding.bottom,
-                        bottom_padding
-                    );
+                        bottom_padding,
+                        marker_padding
+                    });
                     top_padding = std::max(
                         padding.top,
                         top_padding
@@ -1251,7 +1252,7 @@ namespace dark::term {
                 );
                 if (!marker.empty()) {
                     draw_pixel(
-                        start_x,
+                        start_x + start_offset,
                         y + 1,
                         marker,
                         st.to_style(style)

@@ -16,6 +16,16 @@ namespace dark::core::utf8 {
         return lookup[byte >> 4];
     }
 
+    constexpr auto calculate_size(std::string_view str) -> std::size_t {
+        auto size = std::size_t{};
+        for (auto i = 0ul; i < str.size(); ) {
+            auto len = get_length(str[i]);
+            i += len;
+            ++size;
+        }
+        return size;
+    }
+
     struct PackedUTF8 {
     private:
         struct Wrapper {

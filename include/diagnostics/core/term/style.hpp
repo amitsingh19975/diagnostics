@@ -35,6 +35,7 @@ namespace dark::term {
 
         constexpr auto vertical() const noexcept -> unsigned { return top + bottom; }
         constexpr auto horizontal() const noexcept -> unsigned { return left + right; }
+        constexpr auto operator==(PaddingValues const&) const noexcept -> bool = default;
     };
 
     enum class TextOverflow {
