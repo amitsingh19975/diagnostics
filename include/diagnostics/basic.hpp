@@ -114,6 +114,13 @@ namespace dark {
 
         constexpr auto empty() const noexcept -> bool { return tokens.empty(); }
 
+        constexpr auto has_any_marker() const noexcept -> bool {
+            for (auto const& tok: tokens) {
+                if (!tok.marker.empty()) return true;
+            }
+            return false;
+        }
+
         friend void swap(DiagnosticLineTokens& lhs, DiagnosticLineTokens& rhs) {
             using std::swap;
             swap(lhs.tokens, rhs.tokens);
