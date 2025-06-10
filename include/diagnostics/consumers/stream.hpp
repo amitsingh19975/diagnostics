@@ -66,7 +66,7 @@ namespace dark {
 
         auto consume(Diagnostic&& d) -> void override {
             FileLock lock(m_out);
-            internal::render_diagnostic(m_out, d, m_config);
+            render_diagnostic(m_out, d, m_config);
         }
 
         auto flush() -> void override { m_out.flush(); }
