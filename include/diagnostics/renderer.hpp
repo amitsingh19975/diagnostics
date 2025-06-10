@@ -17,7 +17,6 @@
 #include <limits>
 #include <print>
 #include <string_view>
-#include <type_traits>
 #include <unordered_map>
 
 namespace dark {
