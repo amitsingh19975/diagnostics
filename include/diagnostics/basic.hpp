@@ -45,7 +45,7 @@ namespace dark {
         // on this order.
 
         core::CowString text;
-        dsize_t column_number{}; // 1-based; 0 is invalid
+        dsize_t token_start_offset{};
         // Absolute marker
         Span marker{};
         Color text_color{ Color::Default };
@@ -53,18 +53,21 @@ namespace dark {
         bool bold{false};
         bool italic{false};
 
-        constexpr auto col() const noexcept -> dsize_t {
-            return std::max(column_number + marker.start(), dsize_t{1}) - 1;
+        constexpr auto col(dsize_t line_start_offset) const noexcept -> dsize_t {
+            return std::max(line_start_offset, token_start_offset) - token_start_offset;
         }
 
         // Absoulte span; starting from the source text
-        constexpr auto span(dsize_t line_start_offset) const noexcept -> Span {
-            return Span::from_size(line_start_offset + col(), static_cast<dsize_t>(text.size()));
+        constexpr auto span() const noexcept -> Span {
+            return Span::from_size(token_start_offset, static_cast<dsize_t>(text.size()));
         }
 
         // Absoulte span; starting from the source text
-        constexpr auto rel_span() const noexcept -> Span {
-            return span(0);
+        constexpr auto rel_span(dsize_t line_start_offset) const noexcept -> Span {
+            return Span::from_size(
+                col(line_start_offset),
+                span().size()
+            );
         }
 
         constexpr auto empty() const noexcept -> bool {
@@ -75,7 +78,7 @@ namespace dark {
     struct DiagnosticLineTokens {
         core::SmallVec<DiagnosticTokenInfo> tokens;
         dsize_t line_number{}; // 1-based; 0 is invalid
-        dsize_t line_start_offset{}; // position from the start of the source
+        dsize_t line_start_offset{};
 
         // Absoulte span; starting from the source text
         constexpr auto span() const noexcept -> Span {
@@ -83,7 +86,7 @@ namespace dark {
             auto span = Span();
 
             for (auto i = 0ul; i < tokens.size(); ++i) {
-                auto token_span = tokens[i].span(line_start_offset);
+                auto token_span = tokens[i].span();
                 span = span.force_merge(token_span);
             }
 
@@ -95,7 +98,7 @@ namespace dark {
             auto span = Span();
 
             for (auto i = 0ul; i < tokens.size(); ++i) {
-                auto token_span = tokens[i].rel_span();
+                auto token_span = tokens[i].rel_span(line_start_offset);
                 span = span.force_merge(token_span);
             }
 
@@ -104,7 +107,7 @@ namespace dark {
 
         constexpr auto span(std::size_t index) const noexcept -> Span {
             assert(index < tokens.size());
-            return tokens[index].span(line_start_offset);
+            return tokens[index].span();
         }
 
         constexpr auto marker(std::size_t index) const noexcept -> Span {
@@ -163,6 +166,15 @@ namespace dark {
 
         constexpr auto empty() const noexcept -> bool { return lines.empty(); }
 
+        constexpr auto marker() const noexcept -> std::optional<Span> {
+            for (auto const& line: lines) {
+                for (auto const& tok: line.tokens) {
+                    if (!tok.marker.empty()) return tok.marker;
+                }
+            }
+            return {};
+        }
+
         friend void swap(DiagnosticSourceLocationTokens& lhs, DiagnosticSourceLocationTokens& rhs) {
             using std::swap;
             swap(lhs.lines, rhs.lines);
@@ -179,7 +191,7 @@ namespace dark {
             for (auto const& line: source.lines) {
                 for (auto const& tok: line.tokens) {
                     if (tok.marker.empty()) continue;
-                    auto col = tok.col();
+                    auto col = tok.col(line.line_start_offset);
                     return { line.line_number, col == 0 ? 0 : (col + 1) };
                 }
             }
@@ -205,8 +217,8 @@ namespace dark {
             std::string_view text,
             dsize_t line_number, 
             dsize_t line_start,
-            dsize_t column_number, 
-            dsize_t marker_len
+            dsize_t token_start_offset, 
+            Span marker = {}
         ) -> DiagnosticLocation;
     };
 
@@ -268,28 +280,27 @@ namespace dark {
 namespace dark {
 
     /**
-     * @brief Constructs a new diagnostic location using filename and source text.
-     * @param filename The name of the source file.
+     * @brief Adds a new text. It'll parse newlines if present.
      * @param line_number line number starts with 1 (1-based index).
      * @param line_start_offset offset to the line start from the start of the source text.
-     * @param column_number column number where the marker starts. It start from 1 (1-based index)
-     * @param marker_len length of the marker; (column_number - 1, marker_len]
+     * @param token_start_offset absolute token position from the start of the source text.
+     * @param marker Span of the marker
      */
     inline auto DiagnosticLocation::from_text(
         std::string_view filename,
         std::string_view text,
         dsize_t line_number, 
         dsize_t line_start_offset,
-        dsize_t column_number, 
-        dsize_t marker_len
+        dsize_t token_start_offset, 
+        Span marker
     ) -> DiagnosticLocation {
         auto loc = DiagnosticSourceLocationTokens::builder()
             .add_text(
                 text,
                 line_number,
                 line_start_offset,
-                column_number,
-                marker_len
+                token_start_offset,
+                marker
             ).build();
         return { filename, std::move(loc) };
     }
@@ -329,7 +340,7 @@ struct std::formatter<dark::DiagnosticTokenInfo> {
     }
 
     auto format(dark::DiagnosticTokenInfo const& l, auto& ctx) const {
-        return std::format_to(ctx.out(), "DiagnosticTokenInfo(text='{}', marker={}, column_number={}, text_color={}, bg_color={}, bold={})", l.text.to_borrowed(), l.marker, l.column_number, l.text_color, l.bg_color, l.bold);
+        return std::format_to(ctx.out(), "DiagnosticTokenInfo(text='{}', marker={}, token_start_offset={}, text_color={}, bg_color={}, bold={})", l.text.to_borrowed(), l.marker, l.token_start_offset, l.text_color, l.bg_color, l.bold);
     }
 };
 

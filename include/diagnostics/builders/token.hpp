@@ -28,17 +28,18 @@ namespace dark::builder {
          * @brief Adds a new text. It'll parse newlines if present.
          * @param line_number line number starts with 1 (1-based index).
          * @param line_start_offset offset to the line start from the start of the source text.
-         * @param column_number column number where the marker starts. It start from 1 (1-based index)
-         * @param marker_len length of the marker; (column_number - 1, marker_len]
+         * @param token_start_offset absolute token position from the start of the source text.
+         * @param marker Span of the marker
          */
         [[nodiscard("Missing `build()` call")]] auto add_text(
             core::CowString text,
             dsize_t line_number,
             dsize_t line_start_offset,
-            dsize_t column_number,
-            dsize_t marker_len
+            dsize_t token_start_offset,
+            Span marker = {}
         ) -> DiagnosticTokenBuilder& {
             auto it = text.find("\n");
+            assert(token_start_offset >= line_start_offset);
             do {
                 auto txt = text.substr(0, it);
                 auto newline_offset = dsize_t{};
@@ -50,20 +51,22 @@ namespace dark::builder {
                     text = "";
                 }
 
-                auto marker = Span::from_size(
-                    line_start_offset + std::max(column_number, dsize_t{1}) - 1,
-                    std::min(marker_len, static_cast<dsize_t>(txt.size()))
+                auto new_marker = Span::from_size(
+                    marker.start(),
+                    std::min(static_cast<dsize_t>(txt.size()), marker.size())
                 );
 
-                auto txt_size = marker.size() + newline_offset;
-                marker_len = std::max(txt_size, marker_len) - txt_size;
+                marker = Span::from_size(
+                    new_marker.end(),
+                    std::max(marker.size(), new_marker.size() + newline_offset) - new_marker.size() - newline_offset
+                );
 
                 m_tokens.lines.push_back({
                     .tokens = {
                         DiagnosticTokenInfo {
                             .text = txt,
-                            .column_number = column_number,
-                            .marker = marker
+                            .token_start_offset = token_start_offset,
+                            .marker = new_marker
                         }
                     },
                     .line_number = line_number,
@@ -71,9 +74,9 @@ namespace dark::builder {
                 });
 
                 ++line_number;
-                column_number = 0;
                 //...\n[line_start_offset]....
                 line_start_offset += txt.size() + newline_offset;
+                token_start_offset = line_start_offset;
             } while (!text.empty());
 
             return *this;
