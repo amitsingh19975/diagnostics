@@ -3,6 +3,7 @@
 
 #include "diagnostic.hpp"
 #include "../span.hpp"
+#include <array>
 
 namespace dark::builder {
     template <typename LocT>
@@ -649,13 +650,8 @@ namespace dark::builder {
             DiagnosticSourceLocationTokens tokens,
             Ss&&... spans
         ) -> void {
-            auto& annotations = m_builder->m_diagnostic.annotations;
-            annotations.push_back(DiagnosticMessage {
-                .message = std::move(an),
-                .tokens = std::move(tokens),
-                .spans = { spans... },
-                .level = level
-            });
+            std::array<Span, sizeof...(Ss)> tmp = { spans... };
+            annotate_helper(level, std::move(an), std::move(tokens), std::span(tmp));
         }
 
         auto annotate_helper(
@@ -664,7 +660,18 @@ namespace dark::builder {
             DiagnosticSourceLocationTokens tokens,
             std::span<Span> spans
         ) -> void {
-            auto& annotations = m_builder->m_diagnostic.annotations;
+            auto& diag = m_builder->m_diagnostic;
+            auto const& source = diag.location.source;
+            auto marker = source.marker();
+            if (marker) {
+                for (auto& s: spans) {
+                    if (s.empty() && s.start() == 0) {
+                        s = *marker;
+                    } 
+                }
+            }
+
+            auto& annotations = diag.annotations;
             annotations.push_back(DiagnosticMessage {
                 .message = std::move(an),
                 .tokens = std::move(tokens),
@@ -679,13 +686,7 @@ namespace dark::builder {
             DiagnosticSourceLocationTokens tokens,
             Span span
         ) -> void {
-            auto& annotations = m_builder->m_diagnostic.annotations;
-            annotations.push_back(DiagnosticMessage {
-                .message = std::move(an),
-                .tokens = std::move(tokens),
-                .spans = { span },
-                .level = level,
-            });
+            annotate_helper(level, std::move(an), std::move(tokens), std::span(&span, 1));
         }
 
         template <detail::IsSpan... Ss>
