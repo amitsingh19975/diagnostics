@@ -2,13 +2,9 @@
 #define AMT_DARK_DIAGNOSTICS_CORE_TERM_BASIC_HPP
 
 #include "../config.hpp"
-#include <algorithm>
+#include "color.hpp"
 #include <format>
-#include <functional>
-#include <numeric>
 #include <string_view>
-#include <array>
-#include <utility>
 
 #ifdef DARK_OS_UNIX
     #include <unistd.h>
@@ -74,10 +70,10 @@ namespace dark::core::term {
         bool strike{};
         bool italic{};
         bool reset{};
-        char code{16};
+        Color color{};
 
         constexpr auto to_ansi_code() const noexcept -> std::string_view {
-            thread_local static char buffer[32] = {0};
+            thread_local static char buffer[64] = {0};
             auto it = std::format_to(buffer, "\x1b[");
             bool first = true;
             auto append = [&](std::string_view s) {
@@ -94,21 +90,41 @@ namespace dark::core::term {
             if (italic) append("3");
             if (strike) append("9");
 
-            auto code_ = static_cast<size_type>(code) % 17;
-            if (bg) {
-                if (reset) code_ = 49;
-                else if (code_ < 8) code_ += 40;
-                else code_ = 90 + code_ % 8;
-            } else {
-                if (reset) code_ = 39;
-                else if (code_ < 8) code_ += 30;
-                else code_ = 100 + code_ % 8;
-            }
-
-            if (code < 16) {
+            if (color.is_rgb()) {
                 if (!first) {
                     it = std::format_to(it, ";");
                 }
+
+                if (bg) {
+                    if (reset) {
+                        it = std::format_to(it, "49");
+                    } else {
+                        it = std::format_to(it, "48;2;{};{};{}", color.r, color.g, color.b);
+                    }
+                } else {
+                    if (reset) {
+                        it = std::format_to(it, "39");
+                    } else {
+                        it = std::format_to(it, "38;2;{};{};{}", color.r, color.g, color.b);
+                    }
+                }
+                first = false;
+            } else if (!color.is_invalid()) {
+                if (!first) {
+                    it = std::format_to(it, ";");
+                }
+
+                auto code_ = static_cast<size_type>(color.reserved) % 17;
+                if (bg) {
+                    if (reset) code_ = 49;
+                    else if (code_ < 8) code_ += 40;
+                    else code_ = 100 + code_ % 8;
+                } else {
+                    if (reset) code_ = 39;
+                    else if (code_ < 8) code_ += 30;
+                    else code_ = 90 + code_ % 8;
+                }
+
                 it = std::format_to(it, "{}", code_);
                 first = false;
             }
@@ -116,7 +132,9 @@ namespace dark::core::term {
             if (first) return {};
             it = std::format_to(it, "m");
             auto diff = static_cast<size_type>(it - buffer);
-            return { buffer, diff };
+            auto res = std::string_view { buffer, diff };
+            // if (res == "\x1b[m") return {};
+            return res;
         }
     };
 

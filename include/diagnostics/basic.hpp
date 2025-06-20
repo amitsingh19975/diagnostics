@@ -3,7 +3,7 @@
 
 #include "core/config.hpp"
 #include "core/term/color.hpp"
-#include "diagnostics/core/term/annotated_string.hpp"
+#include "core/term/annotated_string.hpp"
 #include "forward.hpp"
 #include "core/cow_string.hpp"
 #include "core/format.hpp"

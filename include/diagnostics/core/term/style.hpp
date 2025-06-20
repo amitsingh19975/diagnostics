@@ -12,14 +12,14 @@ namespace dark::term {
         bool dim{false};
         bool strike{false};
         bool italic{false};
-        unsigned groupId{};
-        int zIndex{};
+        unsigned group_id{};
+        int z_index{};
 
         static constexpr auto invalid_group_id = 0;
         static constexpr auto line_group_id = 1;
 
         constexpr auto is_valid_group_id() const noexcept -> bool {
-            return groupId == invalid_group_id;
+            return group_id == invalid_group_id;
         }
     };
 
@@ -58,8 +58,8 @@ namespace dark::term {
         bool dim{false};
         bool strike{false};
         bool italic{false};
-        unsigned groupId{};
-        int zIndex{};
+        unsigned group_id{};
+        int z_index{};
         bool word_wrap{true};
         bool break_whitespace{};
         unsigned max_lines{ std::numeric_limits<unsigned>::max() };
@@ -77,8 +77,8 @@ namespace dark::term {
                 .dim = dim,
                 .strike = strike,
                 .italic = italic,
-                .groupId = groupId,
-                .zIndex = zIndex,
+                .group_id = group_id,
+                .z_index = z_index,
             };
         }
 

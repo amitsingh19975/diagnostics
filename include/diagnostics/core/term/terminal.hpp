@@ -124,10 +124,10 @@ namespace dark {
             if (should_render_bg_color) {
                 auto term_style = core::term::TerminalStyle {
                     .bg = true,
-                    .reset = bg_color == DEFAULT
+                    .reset = bg_color == DEFAULT,
+                    .color = bg_color
                 };
 
-                term_style.code = static_cast<char>(bg_color);
                 auto code = core::term::output_color(term_style);
                 write(code);
             }
@@ -139,11 +139,11 @@ namespace dark {
                     .dim = style.dim,
                     .strike = style.strike,
                     .italic = style.italic,
-                    .reset = should_render_text_color && text_color == DEFAULT
+                    .reset = should_render_text_color && text_color == DEFAULT,
                 };
 
                 if (should_render_text_color) {
-                    term_style.code = static_cast<char>(text_color);
+                    term_style.color = text_color;
                 }
 
                 auto code = core::term::output_color(term_style);

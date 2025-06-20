@@ -396,7 +396,7 @@ namespace dark::term {
                 .style = style
             };
             auto& current = this->operator()(y, x);
-            if (current.style.zIndex > style.zIndex) return;
+            if (current.style.z_index > style.z_index) return;
             cell.write(ch);
             current = cell;
         }
@@ -769,6 +769,22 @@ namespace dark::term {
                     c,
                     style
                 );
+            }
+
+            if (!style.bg_color.is_invalid()) {
+                for (auto r = 0u; r < height; r++) {
+                    for (auto c = 0u; c < width; ++c) {
+                        auto& current = this->operator()(y + r, x + c);
+                        if (current.empty()) {
+                            draw_pixel(
+                                x + c,
+                                y + r,
+                                " ",
+                                style
+                            );
+                        }
+                    }
+                }
             }
 
             return {
