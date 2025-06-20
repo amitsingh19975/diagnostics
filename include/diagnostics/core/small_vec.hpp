@@ -137,16 +137,12 @@ namespace dark::core {
         }
 
         auto push_back(const_reference val) -> void {
-            if (capacity() < size() + 1) {
-                reserve(size() + 1);
-            }
+            reserve(size() + 1);
             alloc_trait_t::construct(m_alloc, data() + m_size++, val);
         }
 
         auto push_back(value_type&& val) -> void {
-            if (capacity() < size() + 1) {
-                reserve(size() + 1);
-            }
+            reserve(size() + 1);
 
             alloc_trait_t::construct(m_alloc, data() + m_size++, std::move(val));
         }
@@ -160,12 +156,45 @@ namespace dark::core {
         template <typename... Args>
             requires std::constructible_from<T, Args...>
         auto emplace_back(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) -> void {
-            if (capacity() < size() + 1) {
-                reserve(size() + 1);
-            }
+            reserve(size() + 1);
             alloc_trait_t::construct(m_alloc, data() + m_size++, std::forward<Args>(args)...);
         }
 
+        auto insert(iterator pos, const_reference val) -> iterator {
+            auto p = std::distance(begin(), pos);
+            auto n = static_cast<difference_type>(size()) - p;
+            reserve(size() + 1);
+            ++m_size;
+            std::move(rbegin() + 1, rbegin() + n + 1, rbegin());
+            alloc_trait_t::construct(m_alloc, data() + p, val);
+            return begin() + p;
+        }
+
+        auto insert(iterator pos, value_type&& val) -> iterator {
+            auto p = std::distance(begin(), pos);
+            auto n = static_cast<difference_type>(size()) - p;
+            reserve(size() + 1);
+            ++m_size;
+            std::move(rbegin() + 1, rbegin() + n + 1, rbegin());
+            alloc_trait_t::construct(m_alloc, data() + p, val);
+            return begin() + p;
+        }
+
+        auto insert(iterator pos, std::span<value_type> s) -> iterator {
+            auto p = std::distance(begin(), pos);
+            auto n = static_cast<difference_type>(size()) - p;
+            auto ssize = static_cast<difference_type>(s.size());
+            reserve(size() + s.size());
+            m_size += s.size();
+            std::move(rbegin() + ssize, rbegin() + n + ssize, rbegin());
+            auto it = begin() + p;
+
+            for(auto i = 0ul; i < s.size(); ++i, ++p) {
+                alloc_trait_t::construct(m_alloc, data() + p, std::move(s[i]));
+            }
+
+            return it;
+        }
 
         auto back() -> reference {
             assert(!empty());
@@ -407,6 +436,17 @@ namespace dark::core {
             m_data.emplace_back(std::forward<Args>(args)...);
         }
 
+        auto insert(iterator pos, const_reference val) -> iterator {
+            return m_data.insert(pos, val);
+        }
+
+        auto insert(iterator pos, value_type&& val) -> iterator {
+            return m_data.insert(pos, std::move(val));
+        }
+
+        auto insert(iterator pos, std::span<value_type> s) -> iterator {
+            return m_data.insert(pos, s.begin(), s.end());
+        }
 
         auto back() -> reference {
             assert(!empty());
