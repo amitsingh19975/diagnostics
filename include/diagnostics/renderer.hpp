@@ -11,10 +11,14 @@
 #include "core/cow_string.hpp"
 #include "core/small_vec.hpp"
 #include "core/utf8.hpp"
+#include "core/term/style.hpp"
+#include "span.hpp"
 #include <algorithm>
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <print>
 #include <string_view>
 #include <unordered_map>
@@ -22,15 +26,17 @@
 namespace dark {
     struct DiagnosticRenderConfig {
         term::BoxCharSet box_normal{ term::char_set::box::rounded };
-        term::BoxCharSet box_bold { term::char_set::box::rounded_bold };
-        term::LineCharSet line_normal { term::char_set::line::rounded };
-        term::LineCharSet line_bold { term::char_set::line::rounded_bold };
-        term::ArrowCharSet array_normal { term::char_set::arrow::basic };
-        term::ArrowCharSet array_bold { term::char_set::arrow::basic_bold };
+        term::BoxCharSet box_bold{ term::char_set::box::rounded_bold };
+        term::LineCharSet line_normal{ term::char_set::line::rounded };
+        term::LineCharSet line_bold{ term::char_set::line::rounded_bold };
+        term::ArrowCharSet array_normal{ term::char_set::arrow::basic };
+        term::ArrowCharSet array_bold{ term::char_set::arrow::basic_bold };
         std::string_view dotted_vertical{ term::char_set::line::dotted.vertical };
         std::string_view dotted_horizontal{ term::char_set::line::dotted.horizonal };
         unsigned max_non_marker_lines{4};
         unsigned diagnostic_kind_padding{4};
+        std::string_view primary_marker{"^"};
+        std::string_view secondary_marker{"~"};
     };
 } // namespace dark
 
@@ -144,7 +150,7 @@ namespace dark::internal {
 
             // 4. Store spans with ids and filter out out-of-bound spans
             for (auto span: annotation.spans) {
-                if (!source_span.is_between(span)) continue;
+                if (!source_span.is_between(span, true)) continue;
                 // 5. store min span start with annotation message.
                 auto& start = res.messages[message_id].second;
                 start = std::min(start, span.start());
@@ -157,6 +163,11 @@ namespace dark::internal {
                 });
             }
         }
+
+        // Sorting required for patching insert tokens
+        std::stable_sort(res.spans.begin(), res.spans.end(), [](DiagnosticMessageSpanInfo const& l, DiagnosticMessageSpanInfo const& r) {
+            return l.span.start() < r.span.start();
+        });
         return res;
     }
 
@@ -195,7 +206,7 @@ namespace dark::internal {
         auto nbbox = canvas.draw_text(
             diag.message.format().to_borrowed(),
             bbox.width, 0,
-            { .groupId = GroupId::diagnostic_message, .word_wrap = true, .break_whitespace = true }
+            { .group_id = GroupId::diagnostic_message, .word_wrap = true, .break_whitespace = true }
         ).bbox;
         bbox.width = nbbox.width;
         bbox.height = nbbox.height;
@@ -256,7 +267,7 @@ namespace dark::internal {
                 canvas.draw_text("...", 1, y, { .text_color = color, .bold = true });
             }
         }
-        canvas.draw_pixel(width, y, line, { .text_color = color, .groupId = GroupId::diagnostic_ruler });
+        canvas.draw_pixel(width, y, line, { .text_color = color, .group_id = GroupId::diagnostic_ruler });
         container.y += 1;
         return container;
     }
@@ -290,21 +301,285 @@ namespace dark::internal {
             .with_style(line_style)
             .push("]")
             .build();
-        auto box = canvas.draw_text(std::move(an), x, y, { .groupId = GroupId::diagnostic_message }).bbox;
+        auto box = canvas.draw_text(std::move(an), x, y, { .group_id = GroupId::diagnostic_message }).bbox;
         canvas.draw_pixel(
             box.x,
             box.bottom_left().second,
             config.line_normal.vertical,
-            { .text_color = *line_style.text_color, .groupId = GroupId::diagnostic_message }
+            { .text_color = *line_style.text_color, .group_id = GroupId::diagnostic_message }
         );
         box.height += 1;
         return box;
     }
 
+    enum class MarkerKind {
+        Primary,
+        Secondary,
+        Insert,
+        Delete,
+    };
+
+    struct DiagnosticMarker {
+        static constexpr std::string_view primary   = "^";
+        static constexpr std::string_view quad      = "≣";
+        static constexpr std::string_view tripple   = "≋";
+        static constexpr std::string_view double_   = "≈";
+        static constexpr std::string_view single    = "~";
+        static constexpr std::string_view circle    = "●";
+        static constexpr std::string_view remove    = "x";
+        static constexpr std::string_view add       = "+";
+        MarkerKind kind;
+        Span span;
+        unsigned annotation_index{};
+    };
+
+    struct NormalizedDiagnosticTokenInfo {
+        core::CowString text;
+        // The first marker is always the primary marker even if it's
+        // empty. So, markers should be be empty.
+        core::SmallVec<DiagnosticMarker, 2> markers{};
+        dsize_t token_start_offset{};
+        Color text_color{ Color::Default };
+        Color bg_color{ Color::Default };
+        bool bold{false};
+        bool italic{false};
+        bool is_artificial{false};
+
+        constexpr auto span() const noexcept -> Span {
+            return Span::from_size(token_start_offset, static_cast<dsize_t>(text.size()));
+        }
+
+        constexpr auto to_style() const noexcept -> term::Style {
+            return {
+                .text_color = text_color,
+                .bg_color = bg_color,
+                .bold = bold,
+                .italic = italic,
+            };
+        }
+    };
+
+    struct NormalizedDiagnosticLineTokens {
+        core::SmallVec<NormalizedDiagnosticTokenInfo> tokens;
+        dsize_t line_number{};
+        dsize_t line_start_offset{};
+
+        constexpr auto empty() const noexcept -> bool { return tokens.empty(); }
+
+        friend void swap(NormalizedDiagnosticLineTokens& lhs, NormalizedDiagnosticLineTokens& rhs) {
+            using std::swap;
+            swap(lhs.tokens, rhs.tokens);
+            swap(lhs.line_number, rhs.line_number);
+            swap(lhs.line_start_offset, rhs.line_start_offset);
+        }
+    };
+
+
+    static inline auto normalize_diagnostic_line(
+        DiagnosticLineTokens& line,
+        NormalizedDiagnosticAnnotations& an
+    ) -> core::SmallVec<NormalizedDiagnosticLineTokens> {
+        auto res = core::SmallVec<NormalizedDiagnosticLineTokens>{};
+        auto add_entry = [&res](
+            dsize_t line_number,
+            dsize_t line_start_offset
+        ) -> NormalizedDiagnosticLineTokens& {
+            res.push_back(NormalizedDiagnosticLineTokens{
+                .tokens = {},
+                .line_number = line_number,
+                .line_start_offset = line_start_offset
+            });
+            return res.back();
+        };
+        auto& last = add_entry(line.line_number, line.line_start_offset);
+
+        for (auto& tok: line.tokens) {
+
+            core::SmallVec<std::size_t> insert_indices{};
+
+            // 1. Find the first match.
+            std::size_t start{};
+            for (; start < an.spans.size(); ++start) {
+                // Since `an.spans` are sorted by start we can use the first match, and from
+                // there, we find all the spans that are within the bounds.
+                auto const& info = an.spans[start];
+                auto span = info.span;
+                if (info.level != DiagnosticLevel::Insert) continue;
+                if (!tok.span().is_between(span.start())) break;
+            }
+            if (start == an.spans.size()) {
+                last.tokens.push_back(NormalizedDiagnosticTokenInfo {
+                    .text = std::move(tok.text),
+                    .markers = { { .kind = MarkerKind::Primary, .span = tok.marker } },
+                    .token_start_offset = tok.token_start_offset,
+                    .text_color = tok.text_color,
+                    .bg_color = tok.bg_color,
+                    .bold = tok.bold,
+                    .italic = tok.italic
+                });
+                continue;
+            }
+            for (; start < an.spans.size(); ++start) {
+                auto const& info = an.spans[start];
+                auto span = info.span;
+                if (!tok.span().is_between(span.start())) break;
+                if (info.level != DiagnosticLevel::Insert) continue;
+                insert_indices.push_back(start);
+            }
+
+            // Case 1:
+            //   |--------- Token ----------|
+            //      |---- span 1-------|
+            //      |--span 2---|
+            // Case 2:
+            //   |--------- Token ----------|
+            //      |---- span 1-------|
+            //         |--span 2---|
+
+            std::reverse(insert_indices.begin(), insert_indices.end());
+            while (!insert_indices.empty()) {
+                auto& top = an.spans[insert_indices.back()];
+                auto span = tok.span();
+
+                auto first = Span::from_size(span.start(), top.span.start());
+                auto end = Span(first.end(), span.end());
+
+                auto first_marker = Span::from_size(tok.marker.start(), std::min(tok.marker.size(), first.size()));
+                auto last_marker = Span(first_marker.end(), tok.marker.end());
+
+                if (!first.empty()) {
+                    last.tokens.push_back(NormalizedDiagnosticTokenInfo {
+                        .text = tok.text.substr(0, first.size()),
+                        .markers = { { .kind = MarkerKind::Primary, .span = first_marker } },
+                        .token_start_offset = tok.token_start_offset,
+                        .text_color = tok.text_color,
+                        .bg_color = tok.bg_color,
+                        .bold = tok.bold,
+                        .italic = tok.italic
+                    });
+                }
+
+                while (!insert_indices.empty() && an.spans[insert_indices.back()].span.start() == top.span.start()) {
+                    auto annotation_index = insert_indices.back();
+                    top = an.spans[annotation_index];
+                    insert_indices.pop_back();
+
+                    if (auto it = an.tokens.find(top.diagnostic_index); it != an.tokens.end()) {
+                        auto lines = std::move(it->second.lines);
+                        an.tokens.erase(it);
+
+                        for (auto l = 0ul; l < lines.size(); ++l) {
+                            auto& el = lines[l];
+                            for (auto& itok: el.tokens) {
+                                last.tokens.push_back(
+                                    NormalizedDiagnosticTokenInfo {
+                                        .text = std::move(itok.text),
+                                        .markers = {
+                                            DiagnosticMarker {
+                                                .kind = MarkerKind::Insert,
+                                                .span = top.span,
+                                                .annotation_index = static_cast<unsigned>(annotation_index)
+                                            }
+                                        },
+                                        .token_start_offset = tok.token_start_offset,
+                                        .text_color = itok.text_color,
+                                        .bg_color = itok.bg_color,
+                                        .bold = itok.bold,
+                                        .italic = itok.italic,
+                                        .is_artificial = true
+                                    }
+                                );
+                            }
+                            if (l + 1 < lines.size()) {
+                                last = add_entry(0, line.line_start_offset);
+                            }
+                        }
+                    }
+                } 
+
+                if (!end.empty()) {
+                    last.tokens.push_back(NormalizedDiagnosticTokenInfo {
+                        .text = tok.text.substr(first.size()),
+                        .markers = { { .kind = MarkerKind::Primary, .span = last_marker } },
+                        .token_start_offset = tok.token_start_offset,
+                        .text_color = tok.text_color,
+                        .bg_color = tok.bg_color,
+                        .bold = tok.bold,
+                        .italic = tok.italic
+                    });
+                }
+            }
+        }
+
+        for (auto& l: res) {
+            for (auto i = 0ul; i < l.tokens.size(); ++i) {
+                auto& el = l.tokens[i];
+                auto span = el.span();
+                if (el.is_artificial) continue;
+                // Find the intersection spans
+                for (auto j = 0ul; j < an.spans.size(); ++j) {
+                    auto const& top = an.spans[j];
+                    if (top.level == DiagnosticLevel::Insert) continue;
+                    if (span.end() <= top.span.start()) break;
+                    if (!span.is_between(top.span.start())) continue;
+
+                    // [.........token.........]
+                    //    [..first..][..end..]
+                    auto first = Span::from_size(top.span.start(), std::min(top.span.size(), span.size()));
+                    auto end = Span(first.start(), top.span.end());
+
+                    auto kind = MarkerKind::Secondary;
+                    if (top.level == DiagnosticLevel::Delete) kind = MarkerKind::Delete;
+
+                    // Insert the first span and overflowing span will be inserted to the next intersecting tokens.
+                    el.markers.push_back({ .kind = kind, .span = first, .annotation_index = static_cast<unsigned>(j) });
+
+                    // insert the remaining annotation span to the remaining tokens.
+                    for (auto k = i + 1; k < l.tokens.size() && !end.empty(); ++k) {
+                        auto& tmp = l.tokens[k];
+                        if (tmp.is_artificial) continue;
+                        if (!tmp.span().is_between(end.start())) break;
+                        first = Span::from_size(end.start(), std::min(end.size(), tmp.span().size()));
+                        end = Span(first.start(), end.end());
+                        tmp.markers.push_back({ .kind = kind, .span = first, .annotation_index = static_cast<unsigned>(j) });
+                    }
+                }
+            }
+        }
+        for (auto& l: res) {
+            for (auto& el: l.tokens) {
+                auto size = el.markers.size();
+                // 1. [1, 0, 2, 3] -> size = 4
+                // 2. [1, 3, 2] -> size = 3
+                for (auto i = 0ul; i < size; ++i) {
+                    if (el.markers[i].span.empty()) {
+                        --size;
+                        std::swap(el.markers[i], el.markers[size]);
+                    }
+                }
+
+                while (size < el.markers.size()) {
+                    el.markers.pop_back();
+                }
+
+                std::stable_sort(el.markers.begin(), el.markers.end(), [](DiagnosticMarker const& l, DiagnosticMarker const& r) {
+                    return l.span.start() < r.span.start();
+                });
+
+                // make the spans relative
+                for (auto& m: el.markers) {
+                    m.span = m.span - el.token_start_offset;
+                }
+            }
+        }
+
+        return res;
+    }
+
     static inline auto render_source_text(
         term::Canvas& canvas,
         Diagnostic& diag,
-        NormalizedDiagnosticAnnotations const& as,
+        NormalizedDiagnosticAnnotations& as,
         term::BoundingBox ruler_container,
         term::BoundingBox container,
         DiagnosticRenderConfig const& config
@@ -394,6 +669,9 @@ namespace dark::internal {
                 config.dotted_vertical
             );
 
+            ++l;
+            if (line.tokens.empty()) continue;
+
         // Case 1: Everything fits in one line
         //  Ex: 1
         //    | void main(int argc, char** argv) |
@@ -448,154 +726,122 @@ namespace dark::internal {
         //    |       ~~~~~~~~~~~~~            |
         //    |       ~~~~~~~                  |
 
-            // split tokens by '\t'
-            auto tokens = core::SmallVec<DiagnosticTokenInfo>{};
-            tokens.reserve(line.tokens.size());
+            auto normalized_tokens = normalize_diagnostic_line(line, as);
 
-            for (auto t = 0ul; t < line.tokens.size(); ++t) {
-                auto& tok = line.tokens[t];
-                auto text = tok.text.to_borrowed();
-                if (text.size() == 1) {
-                    tokens.push_back(std::move(tok));
-                    continue;
-                }
-                auto index = text.find("\t");
-                if (index == std::string_view::npos) {
-                    tokens.push_back(std::move(tok));
-                    continue;
-                }
-                auto marker = tok.marker;
-                auto make_token = [&tok](std::string_view text, Span marker, dsize_t token_offset) {
-                    auto tmp = DiagnosticTokenInfo {
-                        .text = "",
-                        .token_start_offset = token_offset,
-                        .marker = marker,
-                        .text_color = tok.text_color,
-                        .bg_color = tok.bg_color,
-                        .bold = tok.bold,
-                        .italic = tok.italic
-                    };
+            using buffer_t = std::tuple<
+                unsigned /*token index*/,
+                unsigned /*text index*/,
+                bool /*is_skippable*/
+            >;
+            std::vector<buffer_t> buffer(canvas.cols() + 1);
 
-                    if (tok.text.is_borrowed()) {
-                        tmp.text = text;
-                    } else {
-                        tmp.text = core::CowString(std::string(text));
+            auto buff_size = std::size_t{};
+
+            auto try_render_line = [&buff_size, &buffer](
+                std::span<NormalizedDiagnosticTokenInfo> const& tokens,
+                unsigned token_index,
+                unsigned text_index
+            ) -> std::tuple<bool, unsigned, unsigned> {
+                buff_size = 0;
+                for (; token_index < tokens.size(); ++token_index) {
+                    auto const& token = tokens[token_index];
+                    auto text = token.text.to_borrowed();
+                    if (text.empty()) continue;
+
+                    auto span = Span();
+                    for (auto const& m: token.markers) {
+                        span = m.span.force_merge(span);
                     }
-                    return tmp;
-                };
+                    auto old_buff_size = buff_size;
+                    for (; text_index < text.size();) {
+                        auto len = core::utf8::get_length(text[text_index]);
+                        assert(text.size() >= text_index + len);
 
-                do {
-                    auto tab_start = index;
-                    auto tab_end = index + 1;
-                    for (auto i = tab_end; i < text.size(); ++i, ++tab_end) {
-                        if (text[i] != '\t') break;
-                    }
-
-                    auto first_marker = Span();
-                    auto tab_marker = Span();
-
-                    auto first = text.substr(0, tab_start);
-                    auto tab = text.substr(tab_start, tab_end - tab_start);
-                    text = text.substr(tab_end);
-
-                    auto first_token_offset = tok.token_start_offset;
-                    auto tab_token_offset = static_cast<dsize_t>(first_token_offset + first.size());
-                    auto rem_token_offset = static_cast<dsize_t>(tab_token_offset + tab.size());
-                    tok.token_start_offset = rem_token_offset;
-
-                    if (!marker.empty()) {
-                        auto start = marker.start() - first_token_offset;
-                        auto size = marker.size();
-
-                        if (start < tab_start) {
-                            auto tmp_start = start + first_token_offset;
-                            first_marker = Span::from_size(
-                                tmp_start,
-                                static_cast<dsize_t>(tab_start - start)
-                            );
-                            size -= first_marker.size(); 
+                        auto is_skippable = !token.is_artificial || (!span.empty() && span.is_between(static_cast<dsize_t>(text_index)));
+                        buffer[buff_size++] = { token_index, text_index, is_skippable };
+                        if (text[text_index] == '\t') {
+                            for (auto i = 1ul; i < tab_width ; ++i) {
+                                buffer[buff_size++] = { token_index, text_index, is_skippable };
+                            }
                         }
-
-                        tab_marker = Span::from_size(
-                            tab_token_offset,
-                            std::min(size, static_cast<dsize_t>(tab.size()))
-                        );
-                        size -= tab_marker.size();
-
-                        marker = Span::from_size(
-                            rem_token_offset,
-                            size
-                        );
+                        if (buff_size >= buffer.size()) {
+                            buff_size = old_buff_size;
+                            return { false, token_index, text_index };
+                        }
+                        text_index += len;
                     }
+                }
 
-                    if (!first.empty()) {
-                        tokens.push_back(make_token(first, first_marker, first_token_offset));
+                return { true, token_index, text_index };
+            };
+
+            x = container.x;
+
+            for (auto& line_of_tokens: normalized_tokens) {
+                auto render_result = std::make_tuple(false, 0u, 0u);
+                do {
+                    render_result = try_render_line(line_of_tokens.tokens, 0, 0);
+                    auto [success, token_index, text_index] = render_result;
+
+                    if (success) {
+                        auto free_space = buffer.size() - buff_size;
+                        auto start_padding = std::min<std::size_t>(
+                            std::max(free_space, std::size_t{1}) - 1,
+                            line_of_tokens.tokens[0].token_start_offset - line.line_start_offset
+                        );
+                        x += static_cast<unsigned>(start_padding);
+                        auto bottom_padding = 0u;
+                        for (auto const& token: line_of_tokens.tokens) {
+                            auto text = token.text.to_borrowed();
+                            if (text.empty()) continue;
+
+                            auto marker_start = text.size();
+                            if (!token.markers.empty()) {
+                                marker_start = token.markers[0].span.start();
+                            }
+
+                            // Render before marker
+                            for (auto i = 0ul; i < marker_start; ++x) {
+                                auto len = core::utf8::get_length(text[i]);
+                                assert(text.size() >= i + len);
+                                auto txt = text.substr(i, len);
+
+                                canvas.draw_pixel(
+                                    x, y,
+                                    txt,
+                                    token.to_style()
+                                );
+                                i += len;
+                            }
+
+                            auto marker_end = marker_start;
+                            for (auto i = 0ul; i < token.markers.size(); ++i) {
+                                auto const& m = token.markers[i];
+                                marker_end = std::max<std::size_t>(marker_end, m.span.end());
+                                
+                            }
+
+                            // Render after the marker
+                            for (auto i = marker_end; i < text.size(); ++x) {
+                                auto len = core::utf8::get_length(text[i]);
+                                assert(text.size() >= i + len);
+                                auto txt = text.substr(i, len);
+
+                                canvas.draw_pixel(
+                                    x, y,
+                                    txt,
+                                    token.to_style()
+                                );
+                                i += len;
+                            }
+                        }
+                        y += bottom_padding;
+                        break;
                     }
-
-                    tokens.push_back(make_token(
-                        tab, tab_marker,
-                        tab_token_offset
-                    ));
-
-                    index = text.find("\t");
-                } while (index != std::string_view::npos);
-
-                if (!text.empty()) {
-                    tokens.push_back(make_token(text, marker, tok.token_start_offset));
-                }
+                } while (!std::get<0>(render_result));
             }
-
-            line.tokens = std::move(tokens);
-
-            auto annotated_line = AnnotatedString{};
-            auto bottom_padding = 0u;
-
-            for (auto const& tok: line.tokens) {
-                auto text = tok.text.to_borrowed();
-                if (!tok.marker.empty()) {
-                    bottom_padding = 1;
-                }
-
-                auto marker = Span::from_size(
-                    tok.marker.start() - tok.token_start_offset,
-                    tok.marker.size()
-                );
-
-                auto span_style = SpanStyle {
-                    .text_color = tok.text_color,
-                    .bg_color = tok.bg_color,
-                    .bold = tok.bold,
-                    .italic = tok.italic,
-                };
-
-                if (marker.empty()) {
-                    annotated_line.push(text, span_style);
-                    continue;
-                }
-
-
-                auto first = text.substr(0, marker.start());
-                auto middle = text.substr(marker.start(), marker.size());
-                auto end = text.substr(marker.end());
-                annotated_line.push(first, span_style);
-
-                auto mid_style = span_style;
-                mid_style.underline_marker = "^";
-                annotated_line.push(middle, mid_style);
-
-                annotated_line.push(end, span_style);
-            }
-
-            annotated_line.build_indices();
-
-            if (!annotated_line.empty()) {
-                canvas.draw_text(annotated_line, x, y);
-                y += bottom_padding;
-            }
-            (void)as;
 
             ++y;
-            ++l;
         }
         container.y = y;
         return container;
