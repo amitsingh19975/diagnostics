@@ -136,25 +136,17 @@ namespace dark {
 
             if (lhs == rhs) return { lhs };
 
-            auto s1 = Span();
-            auto s2 = Span();
-            auto s3 = Span();
-
             if (rhs.end() <= lhs.end()) {
-                s1 = Span(lhs.start(), rhs.start());
-                s2 = Span(rhs.start(), rhs.end());
-                s3 = Span(rhs.end(), lhs.end());
+                auto s1 = Span(lhs.start(), rhs.start());
+                auto s2 = Span(rhs.start(), rhs.end());
+                auto s3 = Span(rhs.end(), lhs.end());
+                return {s1, s2, s2};
             } else {
-                s1 = Span(lhs.start(), rhs.start());
-                s2 = Span(rhs.start(), lhs.end());
-                s3 = Span(lhs.end(), rhs.end());
+                auto s1 = Span(lhs.start(), rhs.start());
+                auto s2 = Span(rhs.start(), lhs.end());
+                auto s3 = Span(lhs.end(), rhs.end());
+                return {s1, s2, s2};
             }
-
-            auto result = core::SmallVec<Span, 3>{};
-            if (!s1.empty()) result.push_back(s1);
-            if (!s2.empty()) result.push_back(s2);
-            if (!s3.empty()) result.push_back(s3);
-            return result;
         }
 
         constexpr auto force_merge(Span other) const noexcept -> Span {
@@ -185,8 +177,12 @@ namespace dark {
 
         constexpr auto operator==(Span const& other) const noexcept -> bool = default;
 
-        constexpr auto is_between(Span parent) const noexcept -> bool {
-            return parent.start() >= start() && end() <= parent.end();
+        constexpr auto is_between(Span parent, bool inclusive = false) const noexcept -> bool {
+            return parent.start() >= start() && (end() + static_cast<dsize_t>(inclusive)) > parent.end();
+        }
+
+        constexpr auto is_between(dsize_t el, bool inclusive = false) const noexcept -> bool {
+            return el >= start() && el < (end() + static_cast<dsize_t>(inclusive));
         }
     private:
         size_type m_start{};
