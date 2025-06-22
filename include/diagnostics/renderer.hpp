@@ -548,27 +548,39 @@ namespace dark::internal {
 
                     // [.........token.........]
                     //    [..first..][..end..]
-                    auto first = Span::from_size(top.span.start(), std::min(top.span.size(), span.size()));
-                    auto end = Span(first.start(), top.span.end());
+                    auto first = Span(
+                        top.span.start(),
+                        std::min(top.span.end(), span.end())
+                    );
+                    auto end = Span(first.end(), top.span.end());
 
                     auto kind = MarkerKind::Secondary;
                     if (top.level == DiagnosticLevel::Delete) kind = MarkerKind::Delete;
 
                     // Insert the first span and overflowing span will be inserted to the next intersecting tokens.
-                    el.markers.push_back({ .kind = kind, .span = first, .annotation_index = static_cast<unsigned>(j) });
+                    el.markers.push_back({
+                        .kind = kind,
+                        .span = first,
+                        .annotation_index = static_cast<unsigned>(j)
+                    });
 
                     // insert the remaining annotation span to the remaining tokens.
                     for (auto k = i + 1; k < l.tokens.size() && !end.empty(); ++k) {
                         auto& tmp = l.tokens[k];
                         if (tmp.is_artificial) continue;
                         if (!tmp.span().is_between(end.start())) break;
-                        first = Span::from_size(end.start(), std::min(end.size(), tmp.span().size()));
-                        end = Span(first.start(), end.end());
-                        tmp.markers.push_back({ .kind = kind, .span = first, .annotation_index = static_cast<unsigned>(j) });
+                        first = Span(end.start(), std::min(end.end(), tmp.span().end()));
+                        end = Span(first.end(), end.end());
+                        tmp.markers.push_back({
+                            .kind = kind,
+                            .span = first,
+                            .annotation_index = static_cast<unsigned>(j)
+                        });
                     }
                 }
             }
         }
+
         for (auto& l: res) {
             for (auto& el: l.tokens) {
                 if (el.is_artificial) continue;
@@ -576,16 +588,10 @@ namespace dark::internal {
                 auto size = el.markers.size();
                 // 1. [1, 0, 2, 3] -> size = 4
                 // 2. [1, 3, 2] -> size = 3
-                for (auto i = 0ul; i < size; ++i) {
-                    if (el.markers[i].span.empty()) {
-                        --size;
-                        std::swap(el.markers[i], el.markers[size]);
-                    }
-                }
-
-                while (size < el.markers.size()) {
-                    el.markers.pop_back();
-                }
+                auto it = std::remove_if(el.markers.begin(), el.markers.end(), [](auto const& m) {
+                    return m.span.empty();
+                });
+                el.markers.erase(it, el.markers.end());
 
                 std::stable_sort(el.markers.begin(), el.markers.end(), [](DiagnosticMarker const& l, DiagnosticMarker const& r) {
                     return l.span.start() < r.span.start();
