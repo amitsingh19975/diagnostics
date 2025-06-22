@@ -447,20 +447,29 @@ namespace dark::internal {
 
                 auto first = Span::from_size(span.start(), top.span.start());
                 auto end = Span(first.end(), span.end());
-
-                auto first_marker = Span::from_size(tok.marker.start(), std::min(tok.marker.size(), first.size()));
+                auto start_offset = (tok.marker.start() - tok.token_start_offset);
+                auto first_marker = Span::from_size(
+                    tok.marker.start(),
+                    std::min(tok.marker.size(), std::max(first.size(), start_offset) - start_offset)
+                );
                 auto last_marker = Span(first_marker.end(), tok.marker.end());
 
                 if (!first.empty()) {
                     last.tokens.push_back(NormalizedDiagnosticTokenInfo {
                         .text = tok.text.substr(0, first.size()),
-                        .markers = { { .kind = MarkerKind::Primary, .span = first_marker } },
+                        .markers = {},
                         .token_start_offset = tok.token_start_offset,
                         .text_color = tok.text_color,
                         .bg_color = tok.bg_color,
                         .bold = tok.bold,
                         .italic = tok.italic
                     });
+                    if (!first_marker.empty()) {
+                        last.tokens.back().markers.push_back({
+                            .kind = MarkerKind::Primary,
+                            .span = first_marker
+                        });
+                    }
                 }
 
                 while (!insert_indices.empty() && an.spans[insert_indices.back()].span.start() == top.span.start()) {
@@ -475,13 +484,16 @@ namespace dark::internal {
                         for (auto l = 0ul; l < lines.size(); ++l) {
                             auto& el = lines[l];
                             for (auto& itok: el.tokens) {
+                                auto text_size = static_cast<dsize_t>(itok.text.size());
+                                if (text_size == 0) continue;
+
                                 last.tokens.push_back(
                                     NormalizedDiagnosticTokenInfo {
                                         .text = std::move(itok.text),
                                         .markers = {
                                             DiagnosticMarker {
                                                 .kind = MarkerKind::Insert,
-                                                .span = top.span,
+                                                .span = Span::from_size(0, text_size),
                                                 .annotation_index = static_cast<unsigned>(annotation_index)
                                             }
                                         },
@@ -504,13 +516,20 @@ namespace dark::internal {
                 if (!end.empty()) {
                     last.tokens.push_back(NormalizedDiagnosticTokenInfo {
                         .text = tok.text.substr(first.size()),
-                        .markers = { { .kind = MarkerKind::Primary, .span = last_marker } },
-                        .token_start_offset = tok.token_start_offset,
+                        .markers = {},
+                        .token_start_offset = tok.token_start_offset + first.size(),
                         .text_color = tok.text_color,
                         .bg_color = tok.bg_color,
                         .bold = tok.bold,
                         .italic = tok.italic
                     });
+
+                    if (!last_marker.empty()) {
+                        last.tokens.back().markers.push_back({
+                            .kind = MarkerKind::Primary,
+                            .span = last_marker
+                        });
+                    }
                 }
             }
         }
@@ -552,6 +571,8 @@ namespace dark::internal {
         }
         for (auto& l: res) {
             for (auto& el: l.tokens) {
+                if (el.is_artificial) continue;
+
                 auto size = el.markers.size();
                 // 1. [1, 0, 2, 3] -> size = 4
                 // 2. [1, 3, 2] -> size = 3
