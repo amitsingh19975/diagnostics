@@ -78,10 +78,9 @@ namespace dark::core::term {
             bool first = true;
             auto append = [&](std::string_view s) {
                 if (!first) {
-                    it = std::format_to(it, "{};", s);
-                } else {
-                    it = std::format_to(it, "{}", s);
+                    it = std::format_to(it, ";");
                 }
+                it = std::format_to(it, "{}", s);
                 first = false;
             };
 

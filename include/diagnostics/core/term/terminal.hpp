@@ -30,16 +30,6 @@ namespace dark {
             return Style { .bold = false, .dim = false, .strike = false, .italic = false };
         };
 
-        static constexpr Color BLACK = Color::Black;
-        static constexpr Color RED = Color::Red;
-        static constexpr Color GREEN = Color::Green;
-        static constexpr Color YELLOW = Color::Yellow;
-        static constexpr Color BLUE = Color::Blue;
-        static constexpr Color MAGENTA = Color::Magenta;
-        static constexpr Color CYAN = Color::Cyan;
-        static constexpr Color WHITE = Color::White;
-        static constexpr Color DEFAULT = Color::Default;
-
         Terminal(
             FILE* handle = stdin,
             ColorMode mode = ColorMode::Auto
@@ -75,7 +65,7 @@ namespace dark {
         auto write(
             std::string_view str,
             Color textColor,
-            Color bgColor = DEFAULT,
+            Color bgColor = Color::Default,
             Style style = default_style()
         ) -> Terminal& {
             change_color(textColor, bgColor, style);
@@ -124,7 +114,7 @@ namespace dark {
             if (should_render_bg_color) {
                 auto term_style = core::term::TerminalStyle {
                     .bg = true,
-                    .reset = bg_color == DEFAULT,
+                    .reset = bg_color == Color::Default,
                     .color = bg_color
                 };
 
@@ -139,7 +129,7 @@ namespace dark {
                     .dim = style.dim,
                     .strike = style.strike,
                     .italic = style.italic,
-                    .reset = should_render_text_color && text_color == DEFAULT,
+                    .reset = should_render_text_color && text_color == Color::Default,
                 };
 
                 if (should_render_text_color) {
@@ -156,13 +146,13 @@ namespace dark {
             Color text_color,
             Style style = default_style()
         ) -> Terminal& {
-            return change_color(text_color, DEFAULT, style);
+            return change_color(text_color, Color::Default, style);
         }
 
         auto reset_color() -> Terminal& {
             if (!prepare_colors()) return *this;
 
-            auto new_style = std::make_tuple(default_style(), DEFAULT, DEFAULT);
+            auto new_style = std::make_tuple(default_style(), Color::Default, Color::Default);
             if (m_current_style == new_style) {
                 return *this;
             }
@@ -203,8 +193,8 @@ namespace dark {
         bool m_color_enabled{false};
         std::tuple<Style, Color, Color> m_current_style{
             default_style(), // style
-            DEFAULT, // text color
-            DEFAULT // bg color
+            Color::Default, // text color
+            Color::Default // bg color
         };
     };
 
