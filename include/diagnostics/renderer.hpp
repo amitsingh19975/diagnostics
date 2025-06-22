@@ -13,6 +13,7 @@
 #include "core/utf8.hpp"
 #include "core/term/style.hpp"
 #include "span.hpp"
+#include <__ostream/print.h>
 #include <algorithm>
 #include <array>
 #include <concepts>
@@ -67,7 +68,7 @@ namespace dark::internal {
 
     constexpr auto diagnostic_level_to_color(DiagnosticLevel level) noexcept -> Color {
         switch (level) {
-        case DiagnosticLevel::Remark: return Color::Green;
+        case DiagnosticLevel::Help: return Color::Green;
         case DiagnosticLevel::Note: return Color::Blue;
         case DiagnosticLevel::Warning: return Color::Yellow;
         case DiagnosticLevel::Error: return Color::Red;
@@ -78,7 +79,7 @@ namespace dark::internal {
     }
     constexpr auto diagnostic_level_code_prefix(DiagnosticLevel level) noexcept -> std::string_view {
         switch (level) {
-        case DiagnosticLevel::Remark: return "E";
+        case DiagnosticLevel::Help: return "H";
         case DiagnosticLevel::Note: return "N";
         case DiagnosticLevel::Warning: return "W";
         case DiagnosticLevel::Error: return "E";
@@ -331,6 +332,7 @@ namespace dark::internal {
         MarkerKind kind;
         Span span;
         unsigned annotation_index{};
+        bool is_start{true};
     };
 
     struct NormalizedDiagnosticTokenInfo {
@@ -392,10 +394,10 @@ namespace dark::internal {
             return res.back();
         };
         auto& last = add_entry(line.line_number, line.line_start_offset);
+        core::SmallVec<std::size_t> insert_indices{};
 
         for (auto& tok: line.tokens) {
-
-            core::SmallVec<std::size_t> insert_indices{};
+            insert_indices.clear();
 
             // 1. Find the first match.
             std::size_t start{};
@@ -405,8 +407,9 @@ namespace dark::internal {
                 auto const& info = an.spans[start];
                 auto span = info.span;
                 if (info.level != DiagnosticLevel::Insert) continue;
-                if (!tok.span().is_between(span.start())) break;
+                if (tok.span().is_between(span.start())) break;
             }
+            // 2. if match not found, we just insert the token with marker. 
             if (start == an.spans.size()) {
                 last.tokens.push_back(NormalizedDiagnosticTokenInfo {
                     .text = std::move(tok.text),
@@ -419,6 +422,7 @@ namespace dark::internal {
                 });
                 continue;
             }
+            // 3. find the end of the match
             for (; start < an.spans.size(); ++start) {
                 auto const& info = an.spans[start];
                 auto span = info.span;
@@ -566,6 +570,52 @@ namespace dark::internal {
                     return l.span.start() < r.span.start();
                 });
 
+                while (true) {
+                    auto s = 0ul;
+                    auto k = 0ul;
+                    bool found = false;
+                    size = el.markers.size();
+                    for (; s < size; ++s) {
+                        auto lhs = el.markers[s];
+                        if (lhs.kind == MarkerKind::Insert) continue;
+                        k = 0;
+                        for (; k < size; ++k) {
+                            auto rhs = el.markers[k];
+                            if (s == k) continue;
+                            if (rhs.kind == MarkerKind::Insert) continue;
+
+                            //   |--------- Token ----------|
+                            //      |---- span 1-------|
+                            //         |--span 2---|
+                            //      |-3|-- span 4--||-- span 5--|--6--|
+                            if (lhs.span.intersects(rhs.span) && lhs.span.start() < rhs.span.start()) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found) break;
+                    }
+
+                    if (!found) break;
+                    assert(s != k);
+                    auto lhs = el.markers[s];
+                    auto rhs = el.markers[k];
+                    auto l0 = Span(lhs.span.start(), rhs.span.start());
+                    auto l1 = Span(rhs.span.start(), lhs.span.end());
+                    el.markers[s].span = l0;
+                    lhs.span = l1;
+                    lhs.is_start = false;
+                    // TODO: improve this by find the lower bound and insert afte that position.
+                    el.markers.push_back(lhs);
+                    std::stable_sort(el.markers.begin(), el.markers.end(), [](DiagnosticMarker const& l, DiagnosticMarker const& r) {
+                        return l.span.start() < r.span.start();
+                    });
+                }
+
+                // for (auto const& item: el.markers) {
+                //     std::println("[{}, {}, {}], ", item.annotation_index, item.span, item.is_start);
+                // }
+
                 // make the spans relative
                 for (auto& m: el.markers) {
                     m.span = m.span - el.token_start_offset;
@@ -613,6 +663,9 @@ namespace dark::internal {
             }
             return count;
         };
+
+        // Point -> annotation index
+        std::unordered_map<term::Point, core::SmallVec<DiagnosticMarker, 2>> marker_to_message;
 
         for (auto l = 0ul; l < lines.size();) {
             auto& line = lines[l];
@@ -792,6 +845,8 @@ namespace dark::internal {
                         x += static_cast<unsigned>(start_padding);
                         auto bottom_padding = 0u;
                         for (auto const& token: line_of_tokens.tokens) {
+                            auto token_x_pos = x;
+
                             auto text = token.text.to_borrowed();
                             if (text.empty()) continue;
 
@@ -800,40 +855,224 @@ namespace dark::internal {
                                 marker_start = token.markers[0].span.start();
                             }
 
-                            // Render before marker
-                            for (auto i = 0ul; i < marker_start; ++x) {
-                                auto len = core::utf8::get_length(text[i]);
-                                assert(text.size() >= i + len);
-                                auto txt = text.substr(i, len);
+                            auto render_text = [text, &canvas, tab_indent](
+                                std::size_t start,
+                                std::size_t end,
+                                unsigned x,
+                                unsigned y,
+                                term::Style style
+                            ) -> unsigned {
+                                for (auto i = start; i < end; ++x) {
+                                    auto len = core::utf8::get_length(text[i]);
+                                    assert(text.size() >= i + len);
+                                    auto txt = text.substr(i, len);
 
-                                canvas.draw_pixel(
-                                    x, y,
-                                    txt,
-                                    token.to_style()
-                                );
-                                i += len;
-                            }
+                                    if (txt == "\t") {
+                                        canvas.draw_pixel(
+                                            x, y,
+                                            tab_indent,
+                                            style
+                                        );
+                                        x += (tab_indent.size() - 1);
+                                    } else {
+                                        canvas.draw_pixel(
+                                            x, y,
+                                            txt,
+                                            style
+                                        );
+                                    }
+                                    i += len;
+                                }
+                                return x;
+                            };
+
+                            // Render before marker
+                            x = render_text(0, marker_start, x, y, token.to_style());
 
                             auto marker_end = marker_start;
-                            for (auto i = 0ul; i < token.markers.size(); ++i) {
-                                auto const& m = token.markers[i];
-                                marker_end = std::max<std::size_t>(marker_end, m.span.end());
-                                
+                            auto m_size = token.markers.size();
+                            for (auto i = 0ul; i < m_size;) {
+
+                                auto j = i + 1;
+                                while (
+                                    j < m_size &&
+                                    token.markers[j].span.start() == token.markers[i].span.start()
+                                ) {
+                                    ++j;
+                                }
+
+                                // Positions of marker:
+                                // Primary Marker > Error > Warning >  
+                                std::array<std::pair<unsigned, unsigned>, diagnostic_level_elements_count> marker_freq{};
+                                std::fill(marker_freq.begin(), marker_freq.end(), std::make_pair(0, std::numeric_limits<unsigned>::max()));
+                                unsigned marker_rel_pos{};
+
+                                marker_start = token.markers[i].span.start();
+                                // 1. precompute markers and set non-secondary markers' relative position to 0.
+                                {
+                                    auto primary_span = Span();
+                                    for (auto k = i; k < j; ++k) {
+                                        auto const& m = token.markers[k];
+                                        if (m.kind == MarkerKind::Primary) {
+                                            primary_span = m.span;
+                                            break;
+                                        }
+                                    }
+
+                                    for (auto k = i; k < j; ++k) {
+                                        auto const& m = token.markers[k];
+                                        marker_end = std::max<std::size_t>(marker_end, m.span.end());
+
+                                        DiagnosticLevel level;
+                                        if (m.kind == MarkerKind::Primary) {
+                                            level = diag.level;
+                                        } else {
+                                            auto a_index = m.annotation_index;
+                                            level = as.spans[a_index].level;
+                                        }
+                                        auto& [freq, rel_pos] = marker_freq[static_cast<unsigned>(level)];
+                                        ++freq;
+                                        if (m.kind != MarkerKind::Secondary || primary_span == m.span) {
+                                            rel_pos = 0;
+                                            marker_rel_pos = 1;
+                                        }
+                                    }
+                                }
+
+                                core::SmallVec<std::array<unsigned, diagnostic_level_elements_count>, 64> marker_count_for_each_cell(marker_end + 1);
+
+                                // increment the markers in each cells
+                                for (auto k = i; k < j; ++k) {
+                                    auto const& m = token.markers[k];
+                                    DiagnosticLevel level;
+                                    if (m.kind == MarkerKind::Primary) {
+                                        level = diag.level;
+                                    } else {
+                                        auto a_index = m.annotation_index;
+                                        level = as.spans[a_index].level;
+                                    }
+                                    for (auto s = m.span.start(); s < m.span.end(); ++s) {
+                                        marker_count_for_each_cell[s][static_cast<unsigned>(level)]++;
+                                    }
+                                }
+
+                                // Higher the enum value has more priority.
+                                for (auto it = marker_freq.rbegin(); it != marker_freq.rend(); ++it) {
+                                    auto& [freq, rel_pos] = *it;
+                                    if (rel_pos != std::numeric_limits<unsigned>::max()) continue;
+                                    if (freq == 0) continue;
+                                    rel_pos = marker_rel_pos++;
+                                }
+
+                                // 2. store the span and render marker
+                                for (; i < j; ++i) {
+                                    auto const& m = token.markers[i];
+                                    DiagnosticLevel d_level;
+                                    if (m.kind == MarkerKind::Primary) {
+                                        d_level = diag.level;
+                                    } else {
+                                        auto a_index = m.annotation_index;
+                                        d_level = as.spans[a_index].level;
+                                    }
+                                    auto [freq, rel_y_pos] = marker_freq[static_cast<std::size_t>(d_level)];
+                                    auto pt = term::Point(
+                                        token_x_pos + m.span.start(),
+                                        y + 1u + rel_y_pos
+                                    );
+                                    if (m.is_start) {
+                                        auto& marker_to_message_item = marker_to_message[pt];
+                                        marker_to_message_item.push_back(m);
+                                    }
+
+                                    auto tx = pt.x;
+                                    for (auto s = m.span.start(); s < m.span.end();) {
+                                        auto pos = s;
+                                        auto len = core::utf8::get_length(text[pos]);
+                                        s += len;
+                                        auto txt = text.substr(pos, len);
+
+                                        auto marker = std::string_view{};
+                                        int z_index = static_cast<int>(d_level);
+                                        auto color = diagnostic_level_to_color(d_level);
+                                        auto style = token.to_style();
+
+                                        switch (m.kind) {
+                                            case MarkerKind::Primary: {
+                                                marker = DiagnosticMarker::primary;
+                                                z_index += 50;
+                                            } break;
+                                            case MarkerKind::Secondary: {
+                                                auto count = marker_count_for_each_cell[pos][static_cast<unsigned>(d_level)];
+                                                switch (count) {
+                                                    case 0: case 1: marker = DiagnosticMarker::single; break;
+                                                    case 2: marker = DiagnosticMarker::double_; break;
+                                                    case 3: marker = DiagnosticMarker::tripple; break;
+                                                    default: marker = DiagnosticMarker::quad; break;
+                                                }
+                                            } break;
+                                            case MarkerKind::Insert: {
+                                                marker = DiagnosticMarker::add;
+                                                z_index += 50;
+                                                style.text_color = color;
+                                            } break;
+                                            case MarkerKind::Delete: {
+                                                marker = DiagnosticMarker::remove; 
+                                                z_index += 50;
+                                                style.strike = true;
+                                                style.text_color = color;
+                                            } break;
+                                        }
+
+                                        auto iter = 1u;
+                                        auto tmp_text = txt;
+                                        if (txt[0] == '\t') {
+                                            tmp_text = tab_indent;
+                                            iter = tab_width;
+                                        }
+
+                                        style.z_index = z_index;
+                                        for (auto k = 0ul; k < iter; ++k, ++tx) {
+                                            canvas.draw_pixel(
+                                                tx,
+                                                y,
+                                                tmp_text,
+                                                style
+                                            );
+                                            canvas.draw_pixel(
+                                                tx,
+                                                pt.y,
+                                                marker,
+                                                {
+                                                    .text_color = color,
+                                                    .bold = true,
+                                                    .z_index = z_index
+                                                }
+                                            );
+                                        }
+                                    }
+                                    x = std::max(tx, x);
+                                }
+
+                                bottom_padding = std::max(marker_rel_pos, bottom_padding);
+
+                                // Render non-marked fragments
+                                auto new_marker_end = j < m_size ? token.markers[j].span.start() : marker_end;
+                                x = render_text(marker_end, new_marker_end, x, y, token.to_style()); 
                             }
 
                             // Render after the marker
-                            for (auto i = marker_end; i < text.size(); ++x) {
-                                auto len = core::utf8::get_length(text[i]);
-                                assert(text.size() >= i + len);
-                                auto txt = text.substr(i, len);
-
-                                canvas.draw_pixel(
-                                    x, y,
-                                    txt,
-                                    token.to_style()
-                                );
-                                i += len;
-                            }
+                            x = render_text(marker_end, text.size(), x, y, token.to_style());
+                        }
+                        for (auto i = 0u; i < bottom_padding; ++i) {
+                            auto tmp = ruler_container;
+                            tmp.y++;
+                            render_ruler(
+                                canvas,
+                                tmp,
+                                {},
+                                "",
+                                config.dotted_vertical
+                            );
                         }
                         y += bottom_padding;
                         break;
