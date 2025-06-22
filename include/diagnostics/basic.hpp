@@ -21,20 +21,24 @@
 namespace dark {
 
     enum class DiagnosticLevel: std::uint8_t{
-        Remark = 0,
+        Help = 0,
         Note,
         Warning,
         Error,
+
+        // Fixits
         Insert,
-        Delete
+        Delete // Must be the last element
     };
+
+    static constexpr auto diagnostic_level_elements_count = static_cast<std::size_t>(DiagnosticLevel::Delete) + 1;
 
     [[nodiscard]] static inline constexpr auto to_string(DiagnosticLevel level) noexcept -> std::string_view {
         switch (level) {
             case DiagnosticLevel::Error: return "Error";
             case DiagnosticLevel::Warning: return "Warning";
             case DiagnosticLevel::Note: return "Note";
-            case DiagnosticLevel::Remark: return "Remark";
+            case DiagnosticLevel::Help: return "Help";
             case DiagnosticLevel::Insert: return "Insert";
             case DiagnosticLevel::Delete: return "Delete";
         }
