@@ -51,10 +51,8 @@ namespace dark {
             BasicFormatter(BasicFormatter&& other) noexcept
                 : m_format(std::move(other.m_format))
                 , m_args(std::move(other.m_args))
-                , m_apply(std::move(other.m_apply))
-            {
-                other.m_apply = nullptr;
-            }
+                , m_apply(std::exchange(other.m_apply, nullptr))
+            {}
             BasicFormatter& operator=(BasicFormatter const&) = delete;
             BasicFormatter& operator=(BasicFormatter&& other) noexcept {
                 if (this == &other) return *this;
