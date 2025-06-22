@@ -110,8 +110,8 @@ namespace dark::internal {
         ) noexcept -> bool {
             if (lhs.strings.size() != rhs.strings.size()) return false;
             for (auto i = 0ul; i < lhs.strings.size(); ++i) {
-                auto [l, ls] = lhs.strings[i];
-                auto [r, rs] = rhs.strings[i];
+                auto const& [l, ls] = lhs.strings[i];
+                auto const& [r, rs] = rhs.strings[i];
                 if (ls != rs) return false;
                 if (l.data() == r.data()) continue;
                 if (l.to_borrowed() != r.to_borrowed()) return false;
@@ -1014,11 +1014,13 @@ namespace dark::internal {
                                                 marker = DiagnosticMarker::add;
                                                 z_index += 50;
                                                 style.text_color = color;
+                                                style.bold = true;
                                             } break;
                                             case MarkerKind::Delete: {
                                                 marker = DiagnosticMarker::remove; 
                                                 z_index += 50;
                                                 style.strike = true;
+                                                style.dim = true;
                                                 style.text_color = color;
                                             } break;
                                         }
