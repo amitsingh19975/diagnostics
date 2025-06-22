@@ -490,12 +490,13 @@ namespace dark::builder {
             dsize_t offset,
             core::CowString message = {}
         ) -> DiagnosticAnnotationBuilder {
+            std::println("INSERT");
             auto span = Span::from_size(offset, static_cast<dsize_t>(text.size()));
             annotate_helper(
                 DiagnosticLevel::Insert,
                 std::move(message),
                 DiagnosticSourceLocationTokens::builder()
-                    .add_text(text, 0, 0, 0, span.size())
+                    .add_text(std::move(text), 0, 0, 0, span.size())
                 .build(),
                 span
             );
@@ -518,7 +519,7 @@ namespace dark::builder {
                 DiagnosticLevel::Insert,
                 std::move(message),
                 DiagnosticSourceLocationTokens::builder()
-                    .add_text(text, 0, 0, 0, span.size())
+                    .add_text(std::move(text), 0, 0, 0, span.size())
                 .build(),
                 span
             );

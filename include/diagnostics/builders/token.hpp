@@ -64,7 +64,7 @@ namespace dark::builder {
                 m_tokens.lines.push_back({
                     .tokens = {
                         DiagnosticTokenInfo {
-                            .text = txt,
+                            .text = std::move(txt),
                             .token_start_offset = token_start_offset,
                             .marker = new_marker
                         }
@@ -176,14 +176,14 @@ namespace dark::builder {
         [[nodiscard("Missing `end_line()` call")]] auto add_tokens(
             std::span<DiagnosticTokenInfo> tokens
         ) -> DiagnosticLineTokenBuilder {
-            for (auto t: tokens) (void) add_token(t);
+            for (auto const& t: tokens) (void) add_token(t);
             return *this;
         }
 
         [[nodiscard("Missing `end_line()` call")]] auto consume_tokens(
             std::span<DiagnosticTokenInfo> tokens
         ) -> DiagnosticLineTokenBuilder {
-            for (auto t: tokens) (void) add_token(std::move(t));
+            for (auto& t: tokens) (void) add_token(std::move(t));
             return *this;
         }
     private:
