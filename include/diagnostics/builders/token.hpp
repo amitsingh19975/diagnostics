@@ -61,6 +61,7 @@ namespace dark::builder {
                     std::max(marker.size(), new_marker.size() + newline_offset) - new_marker.size() - newline_offset
                 );
 
+                auto text_size = txt.size();
                 m_tokens.lines.push_back({
                     .tokens = {
                         DiagnosticTokenInfo {
@@ -75,7 +76,7 @@ namespace dark::builder {
 
                 ++line_number;
                 //...\n[line_start_offset]....
-                line_start_offset += txt.size() + newline_offset;
+                line_start_offset += text_size + newline_offset;
                 token_start_offset = line_start_offset;
             } while (!text.empty());
 
