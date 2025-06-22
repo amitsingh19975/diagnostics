@@ -642,6 +642,22 @@ namespace dark::builder {
             );
             return *this;
         }
+
+        /**
+         * @brief Inserts the string starting at offset and ends with offset + string size. It doesn't care about token boundary.
+         * @param span The span to the text to be removed.
+         */
+        auto remove(
+            Span span
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Delete,
+                {},
+                {},
+                span
+            );
+            return *this;
+        }
     private:
         template <detail::IsSpan... Ss>
         auto annotate_helper(
