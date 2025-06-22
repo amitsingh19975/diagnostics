@@ -574,7 +574,8 @@ namespace dark::internal {
                         tmp.markers.push_back({
                             .kind = kind,
                             .span = first,
-                            .annotation_index = static_cast<unsigned>(j)
+                            .annotation_index = static_cast<unsigned>(j),
+                            .is_start = false
                         });
                     }
                 }
@@ -808,16 +809,11 @@ namespace dark::internal {
 
             auto normalized_tokens = normalize_diagnostic_line(line, as);
 
-            using buffer_t = std::tuple<
-                unsigned /*token index*/,
-                unsigned /*text index*/,
-                bool /*is_skippable*/
-            >;
-            std::vector<buffer_t> buffer(canvas.cols() + 1);
+            std::size_t total_canvas_cols = canvas.cols();
 
             auto buff_size = std::size_t{};
 
-            auto try_render_line = [&buff_size, &buffer](
+            auto try_render_line = [&buff_size, total_canvas_cols](
                 std::span<NormalizedDiagnosticTokenInfo> const& tokens,
                 unsigned token_index,
                 unsigned text_index
@@ -837,14 +833,13 @@ namespace dark::internal {
                         auto len = core::utf8::get_length(text[text_index]);
                         assert(text.size() >= text_index + len);
 
-                        auto is_skippable = !token.is_artificial || (!span.empty() && span.is_between(static_cast<dsize_t>(text_index)));
-                        buffer[buff_size++] = { token_index, text_index, is_skippable };
+                        ++buff_size;
                         if (text[text_index] == '\t') {
                             for (auto i = 1ul; i < tab_width ; ++i) {
-                                buffer[buff_size++] = { token_index, text_index, is_skippable };
+                                ++buff_size;
                             }
                         }
-                        if (buff_size >= buffer.size()) {
+                        if (buff_size >= total_canvas_cols) {
                             buff_size = old_buff_size;
                             return { false, token_index, text_index };
                         }
@@ -864,7 +859,7 @@ namespace dark::internal {
                     auto [success, token_index, text_index] = render_result;
 
                     if (success) {
-                        auto free_space = buffer.size() - buff_size;
+                        auto free_space = total_canvas_cols - buff_size;
                         auto start_padding = std::min<std::size_t>(
                             std::max(free_space, std::size_t{1}) - 1,
                             line_of_tokens.tokens[0].token_start_offset - line.line_start_offset
@@ -1012,6 +1007,7 @@ namespace dark::internal {
                                     }
 
                                     auto tx = pt.x;
+                                    // render each marker with token text
                                     for (auto s = m.span.start(); s < m.span.end();) {
                                         auto pos = s;
                                         auto len = core::utf8::get_length(text[pos]);
