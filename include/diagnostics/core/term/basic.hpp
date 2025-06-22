@@ -109,7 +109,9 @@ namespace dark::core::term {
                     }
                 }
                 first = false;
-            } else if (!color.is_invalid()) {
+            }
+
+            if (color.is_reserved()) {
                 if (!first) {
                     it = std::format_to(it, ";");
                 }

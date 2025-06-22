@@ -1289,4 +1289,13 @@ namespace dark::term {
 
 } // namespace dark::term
 
+template <>
+struct std::hash<dark::term::Point> {
+    constexpr auto operator()(dark::term::Point const& p) const noexcept -> std::size_t {
+        auto h0 = std::hash<unsigned>{}(p.x);
+        auto h1 = std::hash<unsigned>{}(p.y);
+        return h0 ^ (h1 << 1);
+    }
+};
+
 #endif // AMT_DARK_DIAGNOSTICS_CORE_TERM_CANVAS_HPP

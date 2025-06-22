@@ -58,6 +58,19 @@ namespace dark {
             return reserved == rgb;
         }
 
+        constexpr auto is_reserved() const noexcept -> bool {
+            return !is_invalid() && !is_rgb();
+        }
+
+        constexpr auto set_rgb(value_type r_, value_type g_, value_type b_) const noexcept -> Color {
+            auto tmp = *this;
+            tmp.r = r_;
+            tmp.g = g_;
+            tmp.b = b_;
+            tmp.reserved = rgb;
+            return tmp;
+        }
+
         static const Color Black;
         static const Color Red;
         static const Color Green;
