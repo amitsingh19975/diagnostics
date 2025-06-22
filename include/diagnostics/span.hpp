@@ -99,7 +99,7 @@ namespace dark {
             if (start() > other.start()) {
                 std::swap(lhs, rhs);
             }
-            return inclusice ? (rhs.start() <= lhs.end()) : (rhs.start() < lhs.end());
+            return rhs.start() < lhs.end() + static_cast<dsize_t>(inclusice);
         }
 
         auto calculate_intersections(Span other) const noexcept -> core::SmallVec<Span, 3> {
@@ -215,7 +215,7 @@ struct std::formatter<dark::Span> {
 
 template <>
 struct std::hash<dark::Span> {
-    constexpr auto operator()(dark::Span const& s) noexcept -> std::size_t {
+    constexpr auto operator()(dark::Span const& s) const noexcept -> std::size_t {
         auto h0 = std::hash<dark::dsize_t>{}(s.start());
         auto h1 = std::hash<dark::dsize_t>{}(s.size());
         return h0 ^ (h1 << 1);
