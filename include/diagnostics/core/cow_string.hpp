@@ -38,10 +38,16 @@ namespace dark::core {
         struct OwnedTag{};
         struct BorrowedTag{};
 
-        constexpr CowString() noexcept {}
+        constexpr CowString() noexcept = default;
         CowString(CowString const& other)
-            : CowString(other.to_owned())
-        {}
+            : m_data(other.m_data)
+            , m_state(other.m_state)
+        {
+            if (other.is_owned()) {
+                auto tmp = CowString(to_borrowed(), OwnedTag{});
+                swap(tmp, *this);
+            }
+        }
         CowString(CowString&& other) noexcept
             : m_data(other.m_data)
             , m_state(std::exchange(other.m_state, NONE))
@@ -49,15 +55,13 @@ namespace dark::core {
         CowString& operator=(CowString const& other) {
             if (this == &other) return *this;
             auto tmp = CowString(other);
-            std::swap(m_data, tmp.m_data);
-            m_state = std::exchange(tmp.m_state, NONE);
+            swap(tmp, *this);
             return *this;
         }
-        CowString& operator=(CowString&& other) noexcept
-        {
+        CowString& operator=(CowString&& other) noexcept {
             if (this == &other) return *this;
-            m_data = std::move(other.m_data);
-            m_state = std::exchange(other.m_state, NONE);
+            auto tmp = CowString(std::move(other));
+            swap(tmp, *this);
             return *this;
         }
         ~CowString() {
@@ -81,13 +85,19 @@ namespace dark::core {
         explicit constexpr CowString(std::string&& s, OwnedTag = {}) noexcept
             : m_state(OWNED)
         {
-            new(m_data.data) std::string(s);
+            new(m_data.data) std::string(std::move(s));
         }
 
         constexpr CowString(std::string_view s, BorrowedTag = {}) noexcept
             : m_state(BORROWED)
         {
             new(m_data.data) std::string_view(s);
+        }
+
+        constexpr CowString(std::string_view s, OwnedTag) noexcept
+            : m_state(OWNED)
+        {
+            new(m_data.data) std::string(s);
         }
 
         template <std::size_t N>
@@ -112,11 +122,13 @@ namespace dark::core {
         }
 
         constexpr auto empty() const noexcept -> bool {
+            if (m_state == NONE) return true;
             if (is_owned()) return as_owned().empty();
             else return as_borrowed().empty();
         }
 
         constexpr auto size() const noexcept -> size_type {
+            if (m_state == NONE) return 0ul;
             if (is_owned()) return as_owned().size();
             else return as_borrowed().size();
         }
@@ -165,6 +177,12 @@ namespace dark::core {
         auto substr(size_type pos = 0, size_type n = npos) const -> CowString {
             if (is_owned()) return CowString(as_owned().substr(pos, n));
             else return CowString(as_borrowed().substr(pos, n));
+        }
+
+        friend auto swap(CowString& lhs, CowString& rhs) noexcept -> void {
+            using std::swap;
+            swap(lhs.m_data, rhs.m_data);
+            swap(lhs.m_state, rhs.m_state);
         }
     private:
         auto as_owned() -> std::string& {
