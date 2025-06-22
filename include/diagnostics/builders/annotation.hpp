@@ -490,7 +490,6 @@ namespace dark::builder {
             dsize_t offset,
             core::CowString message = {}
         ) -> DiagnosticAnnotationBuilder {
-            std::println("INSERT");
             auto span = Span::from_size(offset, static_cast<dsize_t>(text.size()));
             annotate_helper(
                 DiagnosticLevel::Insert,
