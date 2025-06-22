@@ -759,36 +759,29 @@ namespace dark::internal {
             auto cols_occupied = std::size_t{};
 
             auto try_render_line = [&cols_occupied, total_canvas_cols](
-                std::span<NormalizedDiagnosticTokenInfo> const& tokens,
-                unsigned token_index,
-                unsigned text_index
-            ) -> std::tuple<bool, unsigned, unsigned> {
+                std::span<NormalizedDiagnosticTokenInfo> const& tokens
+            ) -> bool {
                 cols_occupied = 0;
-                for (; token_index < tokens.size(); ++token_index) {
+                auto success = true;
+                for (auto token_index = 0ul; token_index < tokens.size(); ++token_index) {
                     auto const& token = tokens[token_index];
                     auto text = token.text.to_borrowed();
                     if (text.empty()) continue;
 
-                    auto span = Span();
-                    for (auto const& m: token.markers) {
-                        span = m.span.force_merge(span);
-                    }
-                    auto old_buff_size = cols_occupied;
-                    for (; text_index < text.size();) {
+                    for (auto text_index = 0ul; text_index < text.size();) {
                         auto len = core::utf8::get_length(text[text_index]);
                         assert(text.size() >= text_index + len);
 
-                        cols_occupied = text[text_index] == '\t' ? tab_width : 1u;
+                        cols_occupied += text[text_index] == '\t' ? tab_width : 1u;
 
                         if (cols_occupied >= total_canvas_cols) {
-                            cols_occupied = old_buff_size;
-                            return { false, token_index, text_index };
+                            success = false;
                         }
                         text_index += len;
                     }
                 }
 
-                return { true, token_index, text_index };
+                return success;
             };
 
             x = container.x;
@@ -796,8 +789,7 @@ namespace dark::internal {
             for (auto& line_of_tokens: normalized_tokens) {
                 auto render_result = std::make_tuple(false, 0u, 0u);
                 do {
-                    render_result = try_render_line(line_of_tokens.tokens, 0, 0);
-                    auto [success, token_index, text_index] = render_result;
+                    auto success = try_render_line(line_of_tokens.tokens);
 
                     if (success) {
                         // Case 1: Everything fits in one line
@@ -807,8 +799,30 @@ namespace dark::internal {
                         //  Ex: 2
                         //    | void main(int argc, char** argv) |
                         //    |           ~~~       ~~~~~~       |
+                        // Case 2: Does not fit because start has too much space
+                        //  Ex: 1
+                        //    |                 void main(int arg|
+                        //    | c, char** argv)                  |
+                        //  Sol: Remove space until it fits the screen
+                        //
+                        //  Ex: 2
+                        //    |                 void main(int arg|
+                        //    | c, char** argv) { return 0; }    |
+                        //  Fixed:
+                        //    | void main(int argc, char** arg...|
+                        //    |           ~~~       ~~~~~~       |
+                        //
+                        //  Ex: 3
+                        //    |                 void main(int arg|
+                        //    | c, char** argv) { return 0; }    |
+                        //  Fixed:
+                        //    | void main(int argc, char** argv) |
+                        //    |           ~~~       ~~~~~~       |
+                        //    |
+                        //    | { return 0; }                    |
+                        //    |   ~~~~~~                         |
 
-                        auto free_space = total_canvas_cols - cols_occupied;
+                        auto free_space = total_canvas_cols - std::min(total_canvas_cols, cols_occupied);
                         auto start_padding = std::min<std::size_t>(
                             std::max(free_space, std::size_t{1}) - 1,
                             line_of_tokens.tokens[0].token_start_offset - line.line_start_offset
@@ -910,7 +924,7 @@ namespace dark::internal {
                                     }
                                 }
 
-                                // Case 2: Overlapping markers
+                                // Case 3: Overlapping markers
                                 //  Ex:
                                 //    | let xy = func(a, b);           |
                                 //    |       ~~~~~~~~                 |
@@ -967,7 +981,7 @@ namespace dark::internal {
                                         auto pos = s;
                                         auto len = core::utf8::get_length(text[pos]);
                                         s += len;
-                                        assert(s < text.size() && "invalid utf-8 character");
+                                        assert(pos + len <= text.size() && "invalid utf-8 character");
                                         auto txt = text.substr(pos, len);
 
                                         auto marker = std::string_view{};
@@ -1063,28 +1077,6 @@ namespace dark::internal {
                     // If there is nothing to remove, then move some of it to
                     // next line.
 
-                    // Case 3: Does not fit because start has too much space
-                    //  Ex: 1
-                    //    |                 void main(int arg|
-                    //    | c, char** argv)                  |
-                    //  Sol: Remove space until it fits the screen
-                    //
-                    //  Ex: 2
-                    //    |                 void main(int arg|
-                    //    | c, char** argv) { return 0; }    |
-                    //  Fixed:
-                    //    | void main(int argc, char** arg...|
-                    //    |           ~~~       ~~~~~~       |
-                    //
-                    //  Ex: 3
-                    //    |                 void main(int arg|
-                    //    | c, char** argv) { return 0; }    |
-                    //  Fixed:
-                    //    | void main(int argc, char** argv) |
-                    //    |           ~~~       ~~~~~~       |
-                    //    |
-                    //    | { return 0; }                    |
-                    //    |   ~~~~~~                         |
 
                     // Case 4: Highlight spans token that breaks across lines
                     //  Ex: 1
@@ -1101,6 +1093,11 @@ namespace dark::internal {
                     //  Ex: 1
                     //    | fn connect(src: &str, ..., dst: &str) |
                     //    |             ~~~~           ~~~~       |
+
+                    // Algorithm:
+                    // 1. calculate center of mass.
+                    // 2. calulate marker relative to center of mass.
+                    // 3. start removing from smallest distance.
 
                 } while (!std::get<0>(render_result));
             }
