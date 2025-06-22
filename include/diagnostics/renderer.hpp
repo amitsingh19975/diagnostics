@@ -787,9 +787,9 @@ namespace dark::internal {
             x = container.x;
 
             for (auto& line_of_tokens: normalized_tokens) {
-                auto render_result = std::make_tuple(false, 0u, 0u);
+                bool success = false;
                 do {
-                    auto success = try_render_line(line_of_tokens.tokens);
+                    success = try_render_line(line_of_tokens.tokens);
 
                     if (success) {
                         // Case 1: Everything fits in one line
@@ -1099,7 +1099,7 @@ namespace dark::internal {
                     // 2. calulate marker relative to center of mass.
                     // 3. start removing from smallest distance.
 
-                } while (!std::get<0>(render_result));
+                } while (!success);
             }
 
             ++y;
