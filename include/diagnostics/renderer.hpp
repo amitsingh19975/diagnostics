@@ -320,6 +320,15 @@ namespace dark::internal {
         Delete,
     };
 
+    constexpr auto mass_from_marker(MarkerKind kind) noexcept -> std::size_t {
+        switch (kind) {
+        case MarkerKind::Primary: return 3;
+        case MarkerKind::Secondary: return 1;
+        case MarkerKind::Insert:
+        case MarkerKind::Delete: return 2;
+        }
+    }
+
     struct DiagnosticMarker {
         static constexpr std::string_view primary   = "^";
         static constexpr std::string_view quad      = "≣";
@@ -346,6 +355,8 @@ namespace dark::internal {
         bool bold{false};
         bool italic{false};
         bool is_artificial{false};
+        term::TextOverflow overflow{ term::TextOverflow::none };
+        Span overflow_span{};
 
         constexpr auto span() const noexcept -> Span {
             return Span::from_size(token_start_offset, static_cast<dsize_t>(text.size()));
@@ -582,6 +593,10 @@ namespace dark::internal {
             }
         }
 
+        constexpr auto cmp_op = [](DiagnosticMarker const& l, DiagnosticMarker const& r) {
+            return l.span.start() < r.span.start();
+        };
+
         for (auto& l: res) {
             for (auto& el: l.tokens) {
                 if (el.is_artificial) continue;
@@ -594,10 +609,9 @@ namespace dark::internal {
                 });
                 el.markers.erase(it, el.markers.end());
 
-                std::stable_sort(el.markers.begin(), el.markers.end(), [](DiagnosticMarker const& l, DiagnosticMarker const& r) {
-                    return l.span.start() < r.span.start();
-                });
+                std::stable_sort(el.markers.begin(), el.markers.end(), cmp_op);
 
+                // remove overlapping spans
                 while (true) {
                     auto s = 0ul;
                     auto k = 0ul;
@@ -635,10 +649,10 @@ namespace dark::internal {
                     lhs.is_start = false;
                     // TODO: improve this by find the lower bound and insert afte that position.
                     el.markers.push_back(lhs);
-                    std::stable_sort(el.markers.begin(), el.markers.end(), [](DiagnosticMarker const& l, DiagnosticMarker const& r) {
-                        return l.span.start() < r.span.start();
-                    });
+                    std::stable_sort(el.markers.begin(), el.markers.end(), cmp_op);
                 }
+
+                // split marked and non-markered text
 
                 // for (auto const& item: el.markers) {
                 //     std::println("[{}, {}, {}], ", item.annotation_index, item.span, item.is_start);
@@ -649,6 +663,65 @@ namespace dark::internal {
                     m.span = m.span - el.token_start_offset;
                 }
             }
+
+            for (auto t = 0ul; t < l.tokens.size(); ++t) {
+                auto& token = l.tokens[t];
+                if (token.markers.empty()) continue;
+                auto start = token.markers[0].span.start();
+                auto end  = token.markers[0].span.end();
+                for (auto const& m: token.markers) {
+                    end = std::max(end, m.span.end());
+                }
+
+                auto text = token.text.to_borrowed();
+                if (text.size() == end - start) continue;
+                if (end == start) continue;
+
+                auto first_text = token.text.substr(0, start);
+                auto mid_text = token.text.substr(start, end - start);
+                auto last_text = token.text.substr(end);
+
+                auto t0 = NormalizedDiagnosticTokenInfo {
+                    .text = {},
+                    .markers = {},
+                    .token_start_offset = token.token_start_offset,
+                    .text_color = token.text_color,
+                    .bg_color = token.bg_color,
+                    .bold = token.bold,
+                    .italic = token.italic
+                };
+
+                token.text = std::move(mid_text);
+                token.token_start_offset += first_text.size();
+                auto last_offset = token.token_start_offset + first_text.size() + mid_text.size();
+
+                for (auto& m: token.markers) {
+                    m.span = Span::from_size(m.span.start() - start, m.span.size());
+                }
+
+                core::SmallVec<NormalizedDiagnosticTokenInfo, 3> new_tokens;
+
+                if (!first_text.empty()) {
+                    auto tmp = t0;
+                    tmp.text = std::move(first_text);
+                    new_tokens.push_back(std::move(tmp));
+                }
+
+                new_tokens.push_back(std::move(token));
+
+                if (!last_text.empty()) {
+                    auto tmp = t0;
+                    tmp.text = std::move(last_text);
+                    tmp.token_start_offset = static_cast<dsize_t>(last_offset);
+                    new_tokens.push_back(std::move(tmp));
+                }
+                token = std::move(new_tokens[0]);
+                l.tokens.insert(l.tokens.begin() + t + 1, std::span(new_tokens.data() + 1, new_tokens.size() - 1));
+            }
+            // for (auto t = 0ul; t < l.tokens.size(); ++t) {
+            //     auto& token = l.tokens[t];
+            //     std::println("HERE: '{}' | {}", token.text.to_borrowed(), token.markers.size());
+            // }
         }
 
         return res;
@@ -756,32 +829,40 @@ namespace dark::internal {
             auto normalized_tokens = normalize_diagnostic_line(line, as);
 
             std::size_t total_canvas_cols = canvas.cols();
-            auto cols_occupied = std::size_t{};
 
-            auto try_render_line = [&cols_occupied, total_canvas_cols](
+            auto try_render_line = [total_canvas_cols](
                 std::span<NormalizedDiagnosticTokenInfo> const& tokens
-            ) -> bool {
-                cols_occupied = 0;
-                auto success = true;
+            ) -> std::pair<bool, std::size_t> {
+                auto cols_occupied = std::size_t{};
                 for (auto token_index = 0ul; token_index < tokens.size(); ++token_index) {
                     auto const& token = tokens[token_index];
                     auto text = token.text.to_borrowed();
                     if (text.empty()) continue;
 
-                    for (auto text_index = 0ul; text_index < text.size();) {
+                    auto overflow_span = token.overflow_span;
+
+                    for (auto text_index = 0ul; text_index < overflow_span.start();) {
                         auto len = core::utf8::get_length(text[text_index]);
                         assert(text.size() >= text_index + len);
-
-                        cols_occupied += text[text_index] == '\t' ? tab_width : 1u;
-
-                        if (cols_occupied >= total_canvas_cols) {
-                            success = false;
-                        }
+                        auto idx = text_index;
                         text_index += len;
+
+                        auto c = text[idx];
+                        cols_occupied += c == '\t' ? tab_width : 1u;
+                    }
+
+                    for (auto text_index = overflow_span.end(); text_index < text.size();) {
+                        auto len = core::utf8::get_length(text[text_index]);
+                        assert(text.size() >= text_index + len);
+                        auto idx = text_index;
+                        text_index += len;
+
+                        auto c = text[idx];
+                        cols_occupied += c == '\t' ? tab_width : 1u;
                     }
                 }
 
-                return success;
+                return { cols_occupied < total_canvas_cols, cols_occupied };
             };
 
             x = container.x;
@@ -789,7 +870,9 @@ namespace dark::internal {
             for (auto& line_of_tokens: normalized_tokens) {
                 bool success = false;
                 do {
-                    success = try_render_line(line_of_tokens.tokens);
+                    auto result = try_render_line(line_of_tokens.tokens);
+                    success = result.first;
+                    auto cols_occupied = result.second;
 
                     if (success) {
                         // Case 1: Everything fits in one line
@@ -840,18 +923,30 @@ namespace dark::internal {
                                 marker_start = token.markers[0].span.start();
                             }
 
-                            auto render_text = [text, &canvas, tab_indent](
+                            auto render_text = [
+                                text,
+                                &canvas,
+                                tab_indent,
+                                overflow = token.overflow,
+                                overflow_span = token.overflow_span,
+                                total_canvas_cols
+                            ](
                                 std::size_t start,
                                 std::size_t end,
                                 unsigned x,
                                 unsigned y,
                                 term::Style style
                             ) -> unsigned {
-                                for (auto i = start; i < end; ++x) {
-                                    auto len = core::utf8::get_length(text[i]);
-                                    assert(text.size() >= i + len);
-                                    auto txt = text.substr(i, len);
+                                if (end - start == 0) return x;
+                                if (overflow == term::TextOverflow::start_ellipsis) {
+                                    auto tmp_style = style;
+                                    tmp_style.bold = true;
+                                    for (auto i = 0ul; i < 3; ++i, ++x) {
+                                        canvas.draw_pixel(x, y, ".", tmp_style);
+                                    }
+                                }
 
+                                auto body = [&x, &y, &canvas, style, tab_indent](std::string_view txt) {
                                     if (txt == "\t") {
                                         canvas.draw_pixel(
                                             x, y,
@@ -866,7 +961,39 @@ namespace dark::internal {
                                             style
                                         );
                                     }
+                                };
+
+                                for (auto i = start; i < overflow_span.start(); ++x) {
+                                    auto len = core::utf8::get_length(text[i]);
+                                    assert(text.size() >= i + len);
+                                    auto txt = text.substr(i, len);
+                                    body(txt);
                                     i += len;
+                                }
+
+                                if (overflow == term::TextOverflow::middle_ellipsis) {
+                                    auto tmp_style = style;
+                                    tmp_style.bold = true;
+                                    for (auto j = 0ul; j < 3; ++j, ++x) {
+                                        canvas.draw_pixel(x, y, ".", tmp_style);
+                                    }
+                                }
+
+                                for (auto i = std::max<std::size_t>(overflow_span.end(), start); i < end; ++x) {
+                                    auto len = core::utf8::get_length(text[i]);
+                                    assert(text.size() >= i + len);
+                                    auto txt = text.substr(i, len);
+                                    body(txt);
+                                    i += len;
+                                }
+
+                                if (overflow == term::TextOverflow::ellipsis) {
+                                    x = std::min(x, static_cast<dsize_t>(total_canvas_cols));
+                                    x = std::max(x, dsize_t{3}) - 3;
+                                    style.bold = true;
+                                    for (auto i = 0ul; i < 3; ++i, ++x) {
+                                        canvas.draw_pixel(x, y, ".", style);
+                                    }
                                 }
                                 return x;
                             };
@@ -877,7 +1004,6 @@ namespace dark::internal {
                             auto marker_end = marker_start;
                             auto m_size = token.markers.size();
                             for (auto i = 0ul; i < m_size;) {
-
                                 auto j = i + 1;
                                 while (
                                     j < m_size &&
@@ -1097,8 +1223,141 @@ namespace dark::internal {
                     // Algorithm:
                     // 1. calculate center of mass.
                     // 2. calulate marker relative to center of mass.
-                    // 3. start removing from smallest distance.
+                    // 3. start removing from largest distance.
+                    // Formula: (sum(i) m_i * x_i)/(sum(i) m_i); where x_i is the center of the span
+                    // and m_i is differs based on marker kind. Primary > Insert = Delete > Secondary
+                    //
+                    // Ex 1. Left side has less distance than the right side.
+                    // BEFORE: |xxxxxxxxxxxx COM xxxxxxxxxxxxxxxxxxxxxxxxxxxxx|
+                    // AFTER:  |xxxxxxxxxxxx COM xxxxxxxxxxxx|
+                    //
+                    // Ex 2. Right side has less distance than the left side.
+                    // BEFORE: |xxxxxxxxxxxxxxxxxxxxxxxxxxxxx COM xxxxxxxxxxxx|
+                    // AFTER:  |xxxxxxxxxxxx COM xxxxxxxxxxxx|
 
+                    auto count_text_len = [](std::string_view text) -> std::size_t {
+                        auto tab_count = static_cast<std::size_t>(std::count(text.begin(), text.end(), '\t'));
+                        return core::utf8::calculate_size(text) + (tab_count * (tab_width - 1));
+                    };
+
+                    std::size_t com{};
+                    std::size_t total_mass{};
+                    auto offset = std::size_t{};
+                    for (auto const& token: line_of_tokens.tokens) {
+                        auto old_offset = offset;
+                        auto text = token.text.to_borrowed();
+                        offset += count_text_len(text) - token.overflow_span.size();
+                        if (token.markers.empty()) {
+                            continue;
+                        }
+                        for (auto const& m: token.markers) {
+                            auto const center = m.span.center() + old_offset;
+                            auto const mass = mass_from_marker(m.kind);
+                            total_mass += mass;
+                            com += mass * center;
+                        }
+                    }
+                    com /= std::max(total_mass, std::size_t{1});
+
+                    auto trim_text = [
+                        &cols_occupied,
+                        total_canvas_cols,
+                        &line_of_tokens,
+                        count_text_len
+                    ]<typename I>(I start, I end, bool is_reverse) {
+                        if (cols_occupied <= total_canvas_cols) return;
+
+                        auto found_marker{false};
+                        // Case 1: Between markers
+                        //   P: [~~~~~][xxxxxxxxxxx][xxxx][xxxxxxxxx][~~~~~~~]
+                        //   S: [~~~~~]...[xxxxxxxx][xxxx][xxxxxx]...[~~~~~~~]
+                        // Case 2: Left Side
+                        //   P: [xxxxxxxxxxx][xxxx][xxxxxxxxx][~~~~~~~]
+                        //   S: ...[xxxx][xxxxxxxxx][~~~~~~~]
+                        // Case 2: Right Side
+                        //   P: [~~~~~~~][xxxxxxxxxxx][xxxx][xxxxxxxxx]
+                        //   S: [~~~~~~~][xxxxxxxxxxx][xxxx]...
+
+                        // Two pass trim:
+                        // Pass 1: go from left/right to end.
+                        // Pass 2: collapse between markers.
+
+                        auto it = start;
+                        for (; it != end; ++it) {
+                            auto diff = cols_occupied - total_canvas_cols + 3;
+
+                            NormalizedDiagnosticTokenInfo& token = *it;
+                            auto txt = token.text.to_borrowed();
+                            if (!token.markers.empty()) {
+                                found_marker = true;
+                                break;
+                            }
+                            auto const text_size = count_text_len(token.text.to_borrowed());
+                            if (text_size < diff) {
+                                auto is_next_marker{false};
+                                if (it + 1 < end) {
+                                    is_next_marker = !(it + 1)->markers.empty();
+                                }
+                                if (text_size > 3 || !is_next_marker) {
+                                    cols_occupied -= txt.size();
+                                }
+                                token.overflow = term::TextOverflow::none;
+                                token.overflow_span = {};
+                            } else {
+                                if (is_reverse) {
+                                    auto s = std::size_t{};
+                                    for (; s < txt.size();) {
+                                        auto len = core::utf8::get_length(txt[s]);
+                                        assert(s + len <= txt.size());
+                                        if (s + diff >= txt.size()) break;
+                                        s += len;
+                                    }
+                                    token.overflow_span = Span(
+                                        static_cast<dsize_t>(s),
+                                        static_cast<dsize_t>(txt.size())
+                                    );
+                                    token.overflow = term::TextOverflow::ellipsis;
+                                } else {
+                                    auto s = std::size_t{};
+                                    for (; s < txt.size();) {
+                                        auto len = core::utf8::get_length(txt[s]);
+                                        assert(s + len <= txt.size());
+                                        if (s >= diff) break;
+                                        s += len;
+                                    }
+                                    token.overflow_span = Span::from_size(
+                                        0,
+                                        static_cast<dsize_t>(s)
+                                    );
+                                    token.overflow = term::TextOverflow::start_ellipsis;
+                                }
+                                cols_occupied -= token.overflow_span.size();
+                            }
+                            if (cols_occupied <= total_canvas_cols) break;
+                        }
+
+                        if (it - start > 0) {
+                            auto sz = it - start;
+                            if (is_reverse) {
+                                for (auto i = 0; i < sz; ++i) {
+                                    line_of_tokens.tokens.pop_back();
+                                }
+                            } else {
+                                line_of_tokens.tokens.erase(line_of_tokens.tokens.begin(), line_of_tokens.tokens.begin() + sz);
+                            }
+                        }
+                        if (!found_marker) return;
+                    };
+                    if (offset > com * 2) {
+                        // left is smaller
+                        // BEFORE: |xxxxxxxxxxxx COM xxxxxxxxxxxxxxxxxxxxxxxxxxxxx|
+                        trim_text(line_of_tokens.tokens.rbegin(), line_of_tokens.tokens.rend(), true);
+                    } else {
+                        // right is smaller
+                        // BEFORE: |xxxxxxxxxxxxxxxxxxxxxxxxxxxxx COM xxxxxxxxxxxx|
+                        trim_text(line_of_tokens.tokens.begin(), line_of_tokens.tokens.end(), false);
+                    }
+                    std::println("Count: {}, {} | {} > {}", total_canvas_cols, cols_occupied, offset, com * 2);
                 } while (!success);
             }
 
