@@ -134,6 +134,7 @@ namespace dark::core {
         }
 
         constexpr auto data() const noexcept -> const_pointer {
+            if (m_state == NONE) return nullptr;
             if (is_owned()) return as_owned().data();
             else return as_borrowed().data();
         }
@@ -149,6 +150,7 @@ namespace dark::core {
         }
 
         constexpr auto to_borrowed() const noexcept -> std::string_view {
+            if (m_state == NONE) return {};
             if (is_owned()) return as_owned();
             else return as_borrowed();
         }
