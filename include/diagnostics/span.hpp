@@ -184,6 +184,8 @@ namespace dark {
         constexpr auto is_between(dsize_t el, bool inclusive = false) const noexcept -> bool {
             return el >= start() && el < (end() + static_cast<dsize_t>(inclusive));
         }
+
+        constexpr auto center() const noexcept -> dsize_t { return start() + size() / 2; }
     private:
         size_type m_start{};
         size_type m_size{};
