@@ -981,6 +981,7 @@ namespace dark::internal {
                                 if (overflow == term::TextOverflow::start_ellipsis) {
                                     auto tmp_style = style;
                                     tmp_style.bold = true;
+                                    tmp_style.dim = true;
                                     for (auto i = 0ul; i < 3; ++i, ++x) {
                                         canvas.draw_pixel(x, y, ".", tmp_style);
                                     }
@@ -1014,6 +1015,7 @@ namespace dark::internal {
                                 if (overflow == term::TextOverflow::middle_ellipsis) {
                                     auto tmp_style = style;
                                     tmp_style.bold = true;
+                                    tmp_style.dim = true;
                                     for (auto j = 0ul; j < 3; ++j, ++x) {
                                         canvas.draw_pixel(x, y, ".", tmp_style);
                                     }
@@ -1029,6 +1031,7 @@ namespace dark::internal {
 
                                 if (overflow == term::TextOverflow::ellipsis) {
                                     style.bold = true;
+                                    style.dim = true;
                                     for (auto i = 0ul; i < 3; ++i, ++x) {
                                         canvas.draw_pixel(x, y, ".", style);
                                     }
@@ -1040,36 +1043,25 @@ namespace dark::internal {
                             x = render_text(0, marker_start, x, y, token.to_style());
 
                             auto marker_end = marker_start;
-                            auto m_size = token.markers.size();
-                            for (auto i = 0ul; i < m_size;) {
-                                auto j = i + 1;
-                                while (
-                                    j < m_size &&
-                                    token.markers[j].span.start() == token.markers[i].span.start()
-                                ) {
-                                    ++j;
-                                }
-
+                            if (!token.markers.empty()) {
                                 // Positions of marker:
                                 // Primary Marker > Error > Warning >  
                                 std::array<std::pair<unsigned, unsigned>, diagnostic_level_elements_count> marker_freq{};
                                 std::fill(marker_freq.begin(), marker_freq.end(), std::make_pair(0, std::numeric_limits<unsigned>::max()));
                                 unsigned marker_rel_pos{};
 
-                                marker_start = token.markers[i].span.start();
+                                marker_start = token.markers[0].span.start();
                                 // 1. precompute markers and set non-secondary markers' relative position to 0.
                                 {
                                     auto primary_span = Span();
-                                    for (auto k = i; k < j; ++k) {
-                                        auto const& m = token.markers[k];
+                                    for (auto const& m: token.markers) {
                                         if (m.kind == MarkerKind::Primary) {
                                             primary_span = m.span;
                                             break;
                                         }
                                     }
 
-                                    for (auto k = i; k < j; ++k) {
-                                        auto const& m = token.markers[k];
+                                    for (auto const& m: token.markers) {
                                         marker_end = std::max<std::size_t>(marker_end, m.span.end());
 
                                         DiagnosticLevel level;
@@ -1094,11 +1086,12 @@ namespace dark::internal {
                                 //    |       ~~~~~~~~                 |
                                 //    |       ~~~~~~~~~~~~~            |
                                 //    |       ~~~~~~~                  |
-                                core::SmallVec<std::array<unsigned, diagnostic_level_elements_count>, 64> marker_count_for_each_cell(marker_end + 1);
+                                // INFO:: Segment tree could be used here if the current implementation
+                                // has performance some implications.
+                                core::SmallVec<std::array<unsigned, diagnostic_level_elements_count>, 64> marker_count_for_each_cell(marker_end + 1, {});
 
                                 // increment the markers in each cells
-                                for (auto k = i; k < j; ++k) {
-                                    auto const& m = token.markers[k];
+                                for (auto const& m: token.markers) {
                                     DiagnosticLevel level;
                                     if (m.kind == MarkerKind::Primary) {
                                         level = diag.level;
@@ -1120,8 +1113,7 @@ namespace dark::internal {
                                 }
 
                                 // 2. store the span and render marker
-                                for (; i < j; ++i) {
-                                    auto const& m = token.markers[i];
+                                for (auto const& m: token.markers) {
                                     DiagnosticLevel d_level;
                                     if (m.kind == MarkerKind::Primary) {
                                         d_level = diag.level;
@@ -1217,10 +1209,6 @@ namespace dark::internal {
                                 }
 
                                 bottom_padding = std::max(marker_rel_pos, bottom_padding);
-
-                                // Render non-marked fragments
-                                auto new_marker_end = j < m_size ? token.markers[j].span.start() : marker_end;
-                                x = render_text(marker_end, new_marker_end, x, y, token.to_style()); 
                             }
 
                             // Render after the marker
@@ -1570,8 +1558,7 @@ namespace dark::internal {
                             trim_between(it, line_of_tokens.tokens.end());
                         }
                     }
-                    (void)failed_count;
-                    // std::println("Count: {}, {} | {} > {} | {}", total_canvas_cols, cols_occupied, offset, com * 2, failed_count);
+                    std::println("Count: {}, {} | {} > {} | {}", total_canvas_cols, cols_occupied, offset, com * 2, failed_count);
                     // exit(0);
                 } while (!success);
             }
