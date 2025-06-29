@@ -1690,7 +1690,7 @@ namespace dark::internal {
                             normalized_tokens.push_back(std::move(tmp));
                         }
                     }
-                    std::println("Count: {}, {} | {} > {} | {}", total_canvas_cols, cols_occupied, offset, com * 2, failed_count);
+                    // std::println("Count: {}, {} | {} > {} | {}", total_canvas_cols, cols_occupied, offset, com * 2, failed_count);
                     ++failed_count;
                     // exit(0);
                 } while (!success);
