@@ -955,7 +955,24 @@ namespace dark::internal {
             x = container.x;
 
             unsigned failed_count{0};
-            for (auto& line_of_tokens: normalized_tokens) {
+            // use this container as stack so we can insert new tokens while iterating
+            std::reverse(normalized_tokens.begin(), normalized_tokens.end());
+            bool is_first_iteration{true};
+            while (!normalized_tokens.empty()) {
+                auto line_of_tokens = std::move(normalized_tokens.back());
+                normalized_tokens.pop_back();
+
+                if (!is_first_iteration) {
+                    render_ruler(
+                        canvas,
+                        ruler_container,
+                        line_of_tokens.line_number == 0 ? std::optional<dsize_t>{} : std::optional<dsize_t>{line_of_tokens.line_number},
+                        "",
+                        config.dotted_vertical
+                    );
+                }
+                is_first_iteration = false;
+
                 bool success = false;
                 do {
                     auto result = try_render_line(line_of_tokens.tokens);
@@ -1560,14 +1577,7 @@ namespace dark::internal {
                         } while (start != end && cols_occupied >= total_canvas_cols);
                     };
 
-                    // for (auto const& t: line_of_tokens.tokens) {
-                    //     std::println("TEXT: '{}'", t.text.to_borrowed());
-                    //     std::print("[");
-                    //     for (auto m: t.markers) {
-                    //         std::print("{}, ", m.span);
-                    //     }
-                    //     std::print("]\n");
-                    // }
+                    auto old_occupied_cols = cols_occupied;
 
                     // three pass trim:
                     // Pass 1: go from left/right to end.
@@ -1606,6 +1616,10 @@ namespace dark::internal {
                         if (cols_occupied >= total_canvas_cols) {
                             trim_between(it, line_of_tokens.tokens.end());
                         }
+                    }
+                    // If we aren't able to collapse anymore, we split it into lines
+                    if (old_occupied_cols == cols_occupied) {
+                        // TODO: Split it lines
                     }
                     std::println("Count: {}, {} | {} > {} | {}", total_canvas_cols, cols_occupied, offset, com * 2, failed_count);
                     // exit(0);
