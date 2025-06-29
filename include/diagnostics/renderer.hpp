@@ -963,6 +963,7 @@ namespace dark::internal {
                 normalized_tokens.pop_back();
 
                 if (!is_first_iteration) {
+                    ruler_container.y = y;
                     render_ruler(
                         canvas,
                         ruler_container,
@@ -975,6 +976,7 @@ namespace dark::internal {
 
                 bool success = false;
                 do {
+                    x = container.x;
                     auto result = try_render_line(line_of_tokens.tokens);
                     success = result.first;
                     auto cols_occupied = result.second;
@@ -1015,7 +1017,7 @@ namespace dark::internal {
                         auto free_space = total_canvas_cols - std::min(total_canvas_cols, cols_occupied);
                         auto start_padding = std::min<std::size_t>(
                             std::max(free_space, std::size_t{1}) - 1,
-                            line_of_tokens.tokens[0].token_start_offset - line.line_start_offset
+                            line_of_tokens.tokens[0].token_start_offset - line_of_tokens.line_start_offset
                         );
                         x += static_cast<unsigned>(start_padding);
                         auto bottom_padding = 0u;
@@ -1577,7 +1579,7 @@ namespace dark::internal {
                         } while (start != end && cols_occupied >= total_canvas_cols);
                     };
 
-                    auto old_occupied_cols = cols_occupied;
+                    // auto old_occupied_cols = cols_occupied;
 
                     // three pass trim:
                     // Pass 1: go from left/right to end.
@@ -1618,12 +1620,83 @@ namespace dark::internal {
                         }
                     }
                     // If we aren't able to collapse anymore, we split it into lines
-                    if (old_occupied_cols == cols_occupied) {
-                        // TODO: Split it lines
+                    if (failed_count > 1) {
+                        failed_count = 0;
+                        auto i = 0ul;
+                        auto occupied = std::size_t{};
+                        for (; i < line_of_tokens.tokens.size(); ++i) {
+                            auto& token = line_of_tokens.tokens[i];
+                            auto cols = count_text_len(token.text.to_borrowed());
+                            if (occupied + cols) {
+                                break;
+                            }
+                            occupied += cols;
+                        }
+
+                        if (i < line_of_tokens.tokens.size()) {
+                            NormalizedDiagnosticLineTokens tmp{
+                                .tokens = {},
+                                .line_number = {},
+                                .line_start_offset = line_of_tokens.line_start_offset
+                            };
+
+                            auto& token = line_of_tokens.tokens[i];
+                            auto text = token.text.to_borrowed();
+                            for (auto j = 0ul; j < text.size();) {
+                                auto len = core::utf8::get_length(text[j]);
+                                auto inc = text[j] == '\t' ? tab_width : 1u;
+                                if (occupied + inc >= total_canvas_cols) {
+                                    auto markers = token.markers;
+                                    token.markers.clear();
+                                    auto sz = static_cast<dsize_t>(j);
+                                    NormalizedDiagnosticTokenInfo t0{
+                                        .text = token.text.substr(j),
+                                        .markers = {},
+                                        .token_start_offset = 0,
+                                        .text_color = token.text_color,
+                                        .bg_color = token.bg_color,
+                                        .bold = token.bold,
+                                        .italic = token.italic
+                                    };
+                                    for (auto& m: markers) {
+                                        auto left = m;
+                                        auto right = m;
+                                        left.span = Span(
+                                            m.span.start(),
+                                            std::min(sz, m.span.end())
+                                        );
+                                        right.span = Span(
+                                            std::max(m.span.start(), sz) - sz,
+                                            m.span.end()
+                                        );
+                                        if (!left.span.empty()) token.markers.push_back(left);
+                                        if (!right.span.empty()) t0.markers.push_back(right);
+                                    }
+                                    token.text = token.text.substr(0, j);
+                                    tmp.line_start_offset += sz;
+                                    tmp.tokens.push_back(std::move(t0));
+                                    break;
+                                }
+                                occupied += inc;
+                                j += len;
+                            }
+
+                            for (auto j = i + 1; j < line_of_tokens.tokens.size(); ++j) {
+                                auto& tk = line_of_tokens.tokens[j];
+                                tk.token_start_offset = 0;
+                                tmp.tokens.push_back(std::move(tk));
+                            }
+
+                            normalized_tokens.push_back(std::move(tmp));
+                        }
                     }
                     std::println("Count: {}, {} | {} > {} | {}", total_canvas_cols, cols_occupied, offset, com * 2, failed_count);
+                    ++failed_count;
                     // exit(0);
                 } while (!success);
+                if (!normalized_tokens.empty()) {
+                    ++y;
+                }
             }
 
             ++y;
