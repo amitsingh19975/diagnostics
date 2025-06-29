@@ -308,7 +308,13 @@ namespace dark::internal {
             config.line_normal.vertical,
             { .text_color = *line_style.text_color, .group_id = GroupId::diagnostic_message }
         );
-        box.height += 1;
+        canvas.draw_pixel(
+            box.x,
+            box.bottom_left().second + 1,
+            config.line_normal.vertical,
+            { .text_color = *line_style.text_color, .group_id = GroupId::diagnostic_message }
+        );
+        box.height += 2;
         return box;
     }
 
@@ -778,29 +784,36 @@ namespace dark::internal {
             auto pos = text.to_borrowed().find('\n');
             DiagnosticLineTokens nl{
                 .tokens = {},
-                .line_number = line.line_number,
+                .line_number = line.line_number + 1,
                 .line_start_offset = static_cast<dsize_t>(line.line_start_offset + pos)
             };
             auto marker = line.tokens[i].marker;
-            auto offset = static_cast<dsize_t>(pos + 1);
+            auto offset = static_cast<dsize_t>(pos);
 
             DiagnosticTokenInfo token{
                 .text = text.substr(pos + 1),
                 .token_start_offset = line.tokens[i].token_start_offset + offset,
-                .marker = Span(marker.start() + offset, marker.end()),
+                .marker = Span(
+                    std::max(marker.start(), line.tokens[i].token_start_offset + offset + 1),
+                    marker.end()
+                ),
                 .text_color = line.tokens[i].text_color,
                 .bg_color = line.tokens[i].bg_color,
                 .bold = line.tokens[i].bold,
                 .italic = line.tokens[i].italic,
             };
+            if (token.marker.empty()) token.marker = {};
             nl.tokens.push_back(std::move(token));
 
-            for (; i < line.tokens.size(); ++i) {
-                nl.tokens.push_back(std::move(line.tokens[i]));
+            for (auto j = i + 1; j < line.tokens.size(); ++j) {
+                nl.tokens.push_back(std::move(line.tokens[j]));
             }
 
-            line.tokens[i].text = text.substr(0, pos - 1);
-            line.tokens[i].marker = Span(marker.start(), marker.start() + offset);
+            line.tokens[i].text = text.substr(0, pos);
+            line.tokens[i].marker = Span(
+                marker.start(),
+                std::min(marker.end(), line.tokens[i].span().start() + offset)
+            );
             lines.push_back(std::move(nl));
         }
 
@@ -830,56 +843,38 @@ namespace dark::internal {
 
         auto skip_check_for = 0ul;
 
-        constexpr auto count_whitespace_len = [](auto const& tokens) -> unsigned {
-            auto count = 0u;
-            for (auto const& tok: tokens) {
-                auto text = tok.text.to_borrowed();
-                auto idx = text.find_first_not_of(" \t");
-                if (idx == std::string_view::npos) break;
-                for (auto i = 0ul; i < idx; ++count) {
-                    auto len = core::utf8::get_length(text[i]);
-                    if (text[i] == '\t') count += tab_width - 1;
-                    i += len;
-                }
-                if (idx != text.size()) {
-                    break;
-                }
-            }
-            return count;
-        };
-
         // Point -> annotation index
         std::unordered_map<term::Point, core::SmallVec<DiagnosticMarker, 2>> marker_to_message;
+
+        auto has_any_marker = [&as](DiagnosticLineTokens const& line) {
+            if (line.has_any_marker()) return true;
+            for (auto const& el: as.spans) {
+                if (line.span().intersects(el.span)) {
+                    return true;
+                }
+            }
+            return false;
+        };
 
         for (auto l = 0ul; l < lines.size();) {
             auto& line = lines[l];
             ruler_container.y = y;
-            bool has_marker = line.has_any_marker();
-            for (auto const& el: as.spans) {
-                if (line.span().intersects(el.span)) {
-                    has_marker = true;
-                    break;
-                }
-            }
 
             // Adds ellipsis if consecutive non-marked lines are present, and it exceeds `max_non_marker_lines` from config
-            if (!has_marker && skip_check_for == 0) {
+            if (!has_any_marker(line) && skip_check_for == 0) {
                 auto number_of_non_marker_lines = 0ul;
-                auto last_whitespace_count = 0u;
-                auto last_span_start = unsigned{};
                 auto old_l = l;
 
-                while (l < lines.size() && !lines[l].has_any_marker()) {
-                    auto& t_line = lines[l];
+                while (l < lines.size() && !has_any_marker(lines[l])) {
                     // calculate line start so we can use it for start of "..."
-                    last_whitespace_count = count_whitespace_len(t_line.tokens);
-                    last_span_start = t_line.rel_span().start();
                     ++l;
                     ++number_of_non_marker_lines;
                 }
 
-                if (number_of_non_marker_lines >= config.max_non_marker_lines) {
-                    if (l >= lines.size()) break;
+                if (
+                    number_of_non_marker_lines >= config.max_non_marker_lines ||
+                    l >= lines.size()
+                ) {
                     render_ruler(
                         canvas,
                         ruler_container,
@@ -887,13 +882,11 @@ namespace dark::internal {
                         "",
                         config.dotted_vertical
                     );
-                    auto new_x = static_cast<unsigned>(x + last_whitespace_count + last_span_start);
-                    new_x = std::min(new_x, static_cast<unsigned>(canvas.cols()) - 3);
                     canvas.draw_text(
-                        "...",
-                        new_x,
+                        std::format("... skipped {} lines ...", number_of_non_marker_lines),
+                        container.x,
                         y,
-                        { .bold = true, }
+                        { .dim = true, .italic = true }
                     );
                     y++;
                     continue;

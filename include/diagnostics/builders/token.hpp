@@ -38,48 +38,19 @@ namespace dark::builder {
             dsize_t token_start_offset,
             Span marker = {}
         ) -> DiagnosticTokenBuilder& {
-            auto it = text.find("\n");
             assert(token_start_offset >= line_start_offset);
-            do {
-                auto txt = text.substr(0, it);
-                auto newline_offset = dsize_t{};
-                if (it != core::CowString::npos) {
-                    text = text.substr(it + 1);
-                    it = text.find("\n");
-                    newline_offset = 1;
-                } else {
-                    text = "";
-                }
 
-                auto new_marker = Span::from_size(
-                    marker.start(),
-                    std::min(static_cast<dsize_t>(txt.size()), marker.size())
-                );
-
-                marker = Span::from_size(
-                    new_marker.end(),
-                    std::max(marker.size(), new_marker.size() + newline_offset) - new_marker.size() - newline_offset
-                );
-
-                auto text_size = txt.size();
-                m_tokens.lines.push_back({
-                    .tokens = {
-                        DiagnosticTokenInfo {
-                            .text = std::move(txt),
-                            .token_start_offset = token_start_offset,
-                            .marker = new_marker
-                        }
-                    },
-                    .line_number = line_number,
-                    .line_start_offset = line_start_offset
-                });
-
-                ++line_number;
-                //...\n[line_start_offset]....
-                line_start_offset += text_size + newline_offset;
-                token_start_offset = line_start_offset;
-            } while (!text.empty());
-
+            m_tokens.lines.push_back({
+                .tokens = {
+                    DiagnosticTokenInfo {
+                        .text = std::move(text),
+                        .token_start_offset = token_start_offset,
+                        .marker = marker
+                    }
+                },
+                .line_number = line_number,
+                .line_start_offset = line_start_offset
+            });
             return *this;
         }
 
