@@ -957,13 +957,13 @@ namespace dark::internal {
             unsigned failed_count{0};
             // use this container as stack so we can insert new tokens while iterating
             std::reverse(normalized_tokens.begin(), normalized_tokens.end());
-            bool is_first_iteration{true};
+            unsigned old_y = y;
             while (!normalized_tokens.empty()) {
                 auto line_of_tokens = std::move(normalized_tokens.back());
                 normalized_tokens.pop_back();
 
-                if (!is_first_iteration) {
-                    ruler_container.y = y;
+                while (old_y++ < y) {
+                    ruler_container.y = old_y;
                     render_ruler(
                         canvas,
                         ruler_container,
@@ -972,7 +972,6 @@ namespace dark::internal {
                         config.dotted_vertical
                     );
                 }
-                is_first_iteration = false;
 
                 bool success = false;
                 do {
@@ -1282,6 +1281,7 @@ namespace dark::internal {
                             // Render after the marker
                             x = render_text(marker_end, text.size(), x, y, token.to_style());
                         }
+                        ++bottom_padding;
                         for (auto i = 0u; i < bottom_padding; ++i) {
                             auto tmp = ruler_container;
                             tmp.y++;
@@ -1694,6 +1694,7 @@ namespace dark::internal {
                     ++failed_count;
                     // exit(0);
                 } while (!success);
+
                 if (!normalized_tokens.empty()) {
                     ++y;
                 }
