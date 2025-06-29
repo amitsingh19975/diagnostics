@@ -13,7 +13,6 @@
 #include "core/utf8.hpp"
 #include "core/term/style.hpp"
 #include "span.hpp"
-#include <__ostream/print.h>
 #include <algorithm>
 #include <array>
 #include <concepts>
