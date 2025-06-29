@@ -760,6 +760,55 @@ namespace dark::internal {
         return res;
     }
 
+    static inline auto fix_newlines(
+        core::SmallVec<DiagnosticLineTokens>& lines
+    ) noexcept -> void {
+        for (auto l = 0ul; l < lines.size(); ++l) {
+            // Find the token text with newline
+            auto& line = lines[l];
+            auto i = 0ul;
+            for (; i < line.tokens.size(); ++i) {
+                auto text = line.tokens[i].text.to_borrowed();
+                if (text.contains('\n')) break;
+            }
+            // continue the loop if no newline found.
+            if (i >= line.tokens.size()) continue;
+
+            auto& text = line.tokens[i].text;
+            auto pos = text.to_borrowed().find('\n');
+            DiagnosticLineTokens nl{
+                .tokens = {},
+                .line_number = line.line_number,
+                .line_start_offset = static_cast<dsize_t>(line.line_start_offset + pos)
+            };
+            auto marker = line.tokens[i].marker;
+            auto offset = static_cast<dsize_t>(pos + 1);
+
+            DiagnosticTokenInfo token{
+                .text = text.substr(pos + 1),
+                .token_start_offset = line.tokens[i].token_start_offset + offset,
+                .marker = Span(marker.start() + offset, marker.end()),
+                .text_color = line.tokens[i].text_color,
+                .bg_color = line.tokens[i].bg_color,
+                .bold = line.tokens[i].bold,
+                .italic = line.tokens[i].italic,
+            };
+            nl.tokens.push_back(std::move(token));
+
+            for (; i < line.tokens.size(); ++i) {
+                nl.tokens.push_back(std::move(line.tokens[i]));
+            }
+
+            line.tokens[i].text = text.substr(0, pos - 1);
+            line.tokens[i].marker = Span(marker.start(), marker.start() + offset);
+            lines.push_back(std::move(nl));
+        }
+
+        std::stable_sort(lines.begin(), lines.end(), [](DiagnosticLineTokens const& lhs, DiagnosticLineTokens const& rhs) {
+            return lhs.line_start_offset < rhs.line_start_offset;
+        });
+    }
+
     static inline auto render_source_text(
         term::Canvas& canvas,
         Diagnostic& diag,
@@ -775,6 +824,7 @@ namespace dark::internal {
         static_assert(tab_width > 0);
 
         auto& lines = diag.location.source.lines;
+        fix_newlines(lines);
         auto x = container.x;
         auto y = container.y;
 
@@ -804,9 +854,16 @@ namespace dark::internal {
         for (auto l = 0ul; l < lines.size();) {
             auto& line = lines[l];
             ruler_container.y = y;
+            bool has_marker = line.has_any_marker();
+            for (auto const& el: as.spans) {
+                if (line.span().intersects(el.span)) {
+                    has_marker = true;
+                    break;
+                }
+            }
 
             // Adds ellipsis if consecutive non-marked lines are present, and it exceeds `max_non_marker_lines` from config
-            if (!line.has_any_marker() && skip_check_for == 0) {
+            if (!has_marker && skip_check_for == 0) {
                 auto number_of_non_marker_lines = 0ul;
                 auto last_whitespace_count = 0u;
                 auto last_span_start = unsigned{};
