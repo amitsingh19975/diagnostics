@@ -52,7 +52,6 @@ namespace dark::core {
         SmallVec(SmallVec&& other) noexcept
             : m_alloc(other.m_alloc)
             , m_size(std::exchange(other.m_size, 0))
-            , m_capacity(std::exchange(other.m_capacity, 0))
         {
             if (other.is_small()) {
                 auto lhs = data();
@@ -61,6 +60,7 @@ namespace dark::core {
             } else {
                 m_data.dyn = std::exchange(other.m_data.dyn, nullptr); 
             }
+            m_capacity = std::exchange(other.m_capacity, 0);
         }
         SmallVec& operator=(SmallVec const& other) {
             if (this == &other) return *this;
