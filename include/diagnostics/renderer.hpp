@@ -983,6 +983,7 @@ namespace dark::internal {
             // use this container as stack so we can insert new tokens while iterating
             std::reverse(normalized_tokens.begin(), normalized_tokens.end());
             unsigned old_y = y;
+            bool is_first_line{true};
             while (!normalized_tokens.empty()) {
                 auto line_of_tokens = std::move(normalized_tokens.back());
                 normalized_tokens.pop_back();
@@ -1044,7 +1045,7 @@ namespace dark::internal {
                             std::max(free_space, std::size_t{1}) - 1,
                             line_of_tokens.tokens[0].token_start_offset - line_of_tokens.line_start_offset
                         );
-                        x += static_cast<unsigned>(start_padding);
+                        x += static_cast<unsigned>(start_padding * is_first_line);
                         auto bottom_padding = 0u;
                         for (auto const& token: line_of_tokens.tokens) {
                             auto token_x_pos = x;
@@ -1725,6 +1726,7 @@ namespace dark::internal {
                 if (!normalized_tokens.empty()) {
                     ++y;
                 }
+                is_first_line = false;
             }
 
             if (l + 1 < lines.size()) {
@@ -1872,8 +1874,10 @@ namespace dark::internal {
                 }
             );
 
-            container.y += 2;
-            ruler_container.y += 1;
+            if (j < as.orphans.size()) {
+                container.y += 1;
+                ruler_container.y += 1;
+            }
 
             i = j;
         }
