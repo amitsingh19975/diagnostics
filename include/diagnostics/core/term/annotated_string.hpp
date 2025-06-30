@@ -51,6 +51,29 @@ namespace dark::term {
             }
         };
 
+        AnnotatedString() noexcept = default;
+        AnnotatedString(AnnotatedString const& other)
+            : strings(other.strings)
+        {}
+        AnnotatedString(AnnotatedString && other) noexcept
+            : strings(std::move(other.strings))
+            , m_cached_indices(std::move(other.m_cached_indices))
+            , m_offset(other.m_offset)
+        {}
+        AnnotatedString& operator=(AnnotatedString const& other) {
+            if (this == &other) return *this;
+            auto tmp = AnnotatedString(other);
+            swap(*this, tmp);
+            return *this;
+        }
+        AnnotatedString& operator=(AnnotatedString && other) noexcept {
+            if (this == &other) return *this;
+            auto tmp = AnnotatedString(std::move(other));
+            swap(*this, tmp);
+            return *this;
+        }
+        ~AnnotatedString() noexcept = default;
+
         auto push(core::CowString s, SpanStyle style = {}) {
             if (s.empty()) return;
             strings.emplace_back(std::move(s), style);
@@ -61,17 +84,17 @@ namespace dark::term {
         }
 
         constexpr auto size() const noexcept -> std::size_t {
-            return m_cached_index.size() - m_offset;
+            return m_cached_indices.size() - m_offset;
         }
 
         auto build_indices() const -> void {
-            m_cached_index.clear();
+            m_cached_indices.clear();
             m_offset = 0;
             for (auto i = 0ul; i < strings.size(); ++i) {
                 auto const& s = strings[i].first.to_borrowed();
                 for (auto j = 0ul, k = 0ul; j < s.size(); ++k) {
                     auto len = core::utf8::get_length(s[j]);
-                    m_cached_index.emplace_back(i, j, len, k);
+                    m_cached_indices.emplace_back(i, j, len, k);
                     j += len;
                 }
             }
@@ -79,8 +102,8 @@ namespace dark::term {
 
         constexpr auto operator[](std::size_t k) noexcept -> std::tuple<std::string_view, SpanStyle, std::string_view, unsigned> {
             auto idx = m_offset + k;
-            assert(idx < m_cached_index.size());
-            auto [s_idx, c_idx, len, ridx] = m_cached_index[idx];
+            assert(idx < m_cached_indices.size());
+            auto [s_idx, c_idx, len, ridx] = m_cached_indices[idx];
             auto const& [text, style] = strings[s_idx];
             auto ns = style;
             if (style.padding) {
@@ -111,7 +134,7 @@ namespace dark::term {
         }
 
         constexpr auto shift(std::size_t offset) const noexcept -> void {
-            m_offset = std::min(m_cached_index.size(), m_offset + offset);
+            m_offset = std::min(m_cached_indices.size(), m_offset + offset);
         }
 
         constexpr auto empty() const noexcept -> bool {
@@ -120,8 +143,8 @@ namespace dark::term {
 
         constexpr auto update_padding(std::size_t index, PaddingValues p) noexcept {
             auto idx = m_offset + index;
-            assert(idx < m_cached_index.size());
-            auto [s_idx, c_idx, len, ridx] = m_cached_index[idx];
+            assert(idx < m_cached_indices.size());
+            auto [s_idx, c_idx, len, ridx] = m_cached_indices[idx];
             (void)ridx;
             auto& style = strings[s_idx].second;
             style.padding = p;
@@ -129,8 +152,8 @@ namespace dark::term {
 
         constexpr auto is_word_end(std::size_t k) const noexcept -> bool {
             auto idx = m_offset + k;
-            if (idx >= m_cached_index.size()) return true;
-            auto [s_idx, c_idx, len, ridx] = m_cached_index[idx];
+            if (idx >= m_cached_indices.size()) return true;
+            auto [s_idx, c_idx, len, ridx] = m_cached_indices[idx];
             (void)ridx;
             auto const& text = strings[s_idx].first.to_borrowed();
             if (std::isspace(text[c_idx])) return true;
@@ -138,9 +161,16 @@ namespace dark::term {
         }
 
         [[nodiscard("Missing 'build()' call")]] static auto builder() noexcept -> builder::AnnotatedStringBuilder;
+
+        friend auto swap(AnnotatedString& lhs, AnnotatedString& rhs) noexcept -> void {
+            using std::swap;
+            swap(lhs.strings, rhs.strings);
+            swap(lhs.m_cached_indices, rhs.m_cached_indices);
+            swap(lhs.m_offset, rhs.m_offset);
+        }
     private:
         // (string index, char index, len, relative index)
-        mutable core::SmallVec<std::tuple<std::size_t, std::size_t, std::uint8_t, std::size_t>, 64> m_cached_index{};
+        mutable core::SmallVec<std::tuple<std::size_t, std::size_t, std::uint8_t, std::size_t>, 64> m_cached_indices{};
         mutable std::size_t m_offset{};
     };
 
