@@ -47,6 +47,7 @@ namespace dark {
         Markers markers{};
         unsigned max_non_marker_lines{4};
         unsigned diagnostic_kind_padding{4};
+        Color ruler_color{Color::Blue};
     };
 } // namespace dark
 
@@ -106,12 +107,21 @@ namespace dark::internal {
         Span span;
     };
 
+    struct DiagnosticOrphanMessageInfo {
+        std::size_t message_index{};
+        DiagnosticLevel level;
+    };
+
     struct NormalizedDiagnosticAnnotations {
         using diagnostic_index_t = std::size_t;
-        // [(AnnotatedString, min span start)]
-        core::SmallVec<std::pair<term::AnnotatedString, dsize_t>> messages{};
+        core::SmallVec<std::pair<
+            /*message*/term::AnnotatedString,
+            /*min start*/dsize_t
+            >
+        > messages{};
         core::SmallVec<DiagnosticMessageSpanInfo> spans{};
         std::unordered_map<diagnostic_index_t, DiagnosticSourceLocationTokens> tokens{};
+        core::SmallVec<DiagnosticOrphanMessageInfo> orphans{};
 
         static constexpr auto compare_annotated_string(
             term::AnnotatedString const& lhs,
@@ -143,7 +153,7 @@ namespace dark::internal {
                 auto const& el = res.messages[m];
                 if (NormalizedDiagnosticAnnotations::compare_annotated_string(
                     annotation.message,
-                    el.first
+                    std::get<0>(el)
                 )) {
                     message_id = m;
                 }
@@ -157,13 +167,20 @@ namespace dark::internal {
 
             // 3. Store tokens inside the hashmap
             res.tokens[i] = std::move(annotation.tokens);
+            bool has_spans{false};
 
             // 4. Store spans with ids and filter out out-of-bound spans
             for (auto span: annotation.spans) {
                 if (!source_span.is_between(span, true)) continue;
                 // 5. store min span start with annotation message.
-                auto& start = res.messages[message_id].second;
+                auto& start = std::get<1>(res.messages[message_id]);
                 start = std::min(start, span.start());
+
+                if (span.empty()) {
+                    continue;
+                }
+
+                has_spans = true;
 
                 res.spans.push_back(DiagnosticMessageSpanInfo {
                     .message_index = message_id,
@@ -171,6 +188,10 @@ namespace dark::internal {
                     .level = annotation.level,
                     .span = span
                 });
+            }
+
+            if (!has_spans) {
+                res.orphans.push_back({ .message_index = message_id, .level = annotation.level });
             }
         }
 
@@ -259,7 +280,7 @@ namespace dark::internal {
         std::optional<dsize_t> line_number,
         std::string_view vertical,
         std::string_view dotted_vertical,
-        Color color = Color::Blue
+        Color color
     ) -> term::BoundingBox {
         auto width = container.width;
         auto y = container.y;
@@ -882,7 +903,8 @@ namespace dark::internal {
                         ruler_container,
                         {},
                         "",
-                        config.dotted_vertical
+                        config.dotted_vertical,
+                        config.ruler_color
                     );
                     canvas.draw_text(
                         std::format("... skipped {} lines ...", number_of_non_marker_lines),
@@ -905,7 +927,8 @@ namespace dark::internal {
                 ruler_container,
                 line.line_number,
                 "",
-                config.dotted_vertical
+                config.dotted_vertical,
+                config.ruler_color
             );
 
             ++l;
@@ -971,7 +994,8 @@ namespace dark::internal {
                         ruler_container,
                         line_of_tokens.line_number == 0 ? std::optional<dsize_t>{} : std::optional<dsize_t>{line_of_tokens.line_number},
                         "",
-                        config.dotted_vertical
+                        config.dotted_vertical,
+                        config.ruler_color
                     );
                 }
 
@@ -1292,7 +1316,8 @@ namespace dark::internal {
                                 tmp,
                                 {},
                                 "",
-                                config.dotted_vertical
+                                config.dotted_vertical,
+                                config.ruler_color
                             );
                         }
                         y += bottom_padding;
@@ -1702,9 +1727,157 @@ namespace dark::internal {
                 }
             }
 
-            ++y;
+            if (l + 1 < lines.size()) {
+                ++y;
+            }
         }
         container.y = y;
+        return container;
+    }
+
+    static inline auto render_orphan_messages(
+        term::Canvas& canvas,
+        NormalizedDiagnosticAnnotations& as,
+        term::BoundingBox ruler_container,
+        term::BoundingBox container,
+        DiagnosticRenderConfig const& config
+    ) -> term::BoundingBox {
+        if (as.orphans.empty()) return container;
+        std::stable_sort(as.orphans.begin(), as.orphans.end(), [](DiagnosticOrphanMessageInfo const& lhs, DiagnosticOrphanMessageInfo const& rhs) {
+            return static_cast<int>(lhs.level) < static_cast<int>(rhs.level);
+        });
+
+        for (auto i = 0ul; i < as.orphans.size();) {
+            auto j = i + 1;
+            auto level = as.orphans[i].level;
+            auto color = diagnostic_level_to_color(level);
+            for (; j < as.orphans.size(); ++j) {
+                if (as.orphans[j].level != as.orphans[i].level) break;
+            }
+
+            auto y = container.y + 1;
+            auto should_show_bullet_points = j - i > 1;
+            auto content_width = dsize_t{};
+            for (; i < j; ++i) {
+                auto x = container.x + 2;
+                auto bp = config.bullet_point;
+                if (!should_show_bullet_points) {
+                    bp = "";
+                }
+                canvas.draw_pixel(x, y, bp, {
+                    .text_color = diagnostic_level_to_color(level)
+                });
+                auto padding = static_cast<dsize_t>(should_show_bullet_points);
+                [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
+                    // WARN: do not move the annotated string since it is shared.
+                    std::get<0>(as.messages[as.orphans[i].message_index]),
+                    x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
+                    y,
+                    {
+                        .break_whitespace = true,
+                        .max_width = container.width - 2
+                    }
+                );
+                y += text_container.height;
+                content_width = std::min(std::max(content_width, text_container.width + 6 + padding), container.width);
+            }
+            auto content_height = (y - container.y - 1);
+            auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
+            auto mid_point = total_height / 2;
+            auto box = term::BoundingBox {
+                .x = container.x - 1,
+                .y = container.y,
+                .width = content_width,
+                .height = total_height - 1
+            };
+            container.y = y;
+
+            while (ruler_container.y < box.y) {
+                render_ruler(
+                    canvas,
+                    ruler_container,
+                    {},
+                    config.line_normal.vertical,
+                    config.line_normal.vertical,
+                    config.ruler_color
+                );
+                ++ruler_container.y;
+            }
+
+            for (auto m = 0ul; m < mid_point; ++m, ++ruler_container.y) {
+                render_ruler(
+                    canvas,
+                    ruler_container,
+                    {},
+                    config.line_normal.vertical,
+                    config.line_normal.vertical,
+                    config.ruler_color
+                );
+            }
+
+            if (j < as.orphans.size()) {
+                canvas.draw_pixel(
+                    ruler_container.width, ruler_container.y,
+                    config.box_normal.right_connector,
+                    {
+                        .text_color = color
+                    }
+                );
+            } else {
+                canvas.draw_pixel(
+                    ruler_container.width, ruler_container.y,
+                    config.line_normal.turn_up,
+                    {
+                        .text_color = color
+                    }
+                );
+            }
+
+            canvas.draw_pixel(
+                ruler_container.width + 1, box.y + mid_point,
+                config.box_normal.horizonal,
+                {
+                    .text_color = color
+                }
+            );
+
+            canvas.draw_box(
+                box.x,
+                box.y,
+                box.width,
+                box.height,
+                {
+                    .text_color = color
+                },
+                config.box_normal,
+                config.box_bold
+            );
+
+            canvas.draw_pixel(
+                ruler_container.width + 2, box.y + mid_point,
+                config.box_normal.left_connector,
+                {
+                    .text_color = color
+                }
+            );
+
+            canvas.draw_text(
+                AnnotatedString::builder()
+                    .push(" ").push(to_string(level)).push(" ").build(),
+                box.x + 2,
+                box.y,
+                {
+                    .text_color = color,
+                    .bold = true
+                }
+            );
+
+            container.y += 2;
+            ruler_container.y += 1;
+
+            i = j;
+        }
+
         return container;
     }
 } // namespace dark::internal
@@ -1745,9 +1918,19 @@ namespace dark {
 
         auto annotations = normalize_diagnostic_messages(diag);
 
-        render_source_text(
+        content_container = render_source_text(
             canvas,
             diag,
+            annotations,
+            ruler_container,
+            content_container,
+            config
+        );
+
+        ruler_container.y = content_container.y;
+
+        render_orphan_messages(
+            canvas,
             annotations,
             ruler_container,
             content_container,
