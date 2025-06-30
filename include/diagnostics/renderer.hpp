@@ -24,6 +24,16 @@
 #include <unordered_map>
 
 namespace dark {
+    struct Markers {
+        std::string_view primary   = "^";
+        std::string_view quad      = "≣";
+        std::string_view tripple   = "≋";
+        std::string_view double_   = "≈";
+        std::string_view single    = "~";
+        std::string_view remove    = "x";
+        std::string_view insert    = "+";
+    };
+
     struct DiagnosticRenderConfig {
         term::BoxCharSet box_normal{ term::char_set::box::rounded };
         term::BoxCharSet box_bold{ term::char_set::box::rounded_bold };
@@ -33,10 +43,10 @@ namespace dark {
         term::ArrowCharSet array_bold{ term::char_set::arrow::basic_bold };
         std::string_view dotted_vertical{ term::char_set::line::dotted.vertical };
         std::string_view dotted_horizontal{ term::char_set::line::dotted.horizonal };
+        std::string_view bullet_point = "●";
+        Markers markers{};
         unsigned max_non_marker_lines{4};
         unsigned diagnostic_kind_padding{4};
-        std::string_view primary_marker{"^"};
-        std::string_view secondary_marker{"~"};
     };
 } // namespace dark
 
@@ -335,14 +345,6 @@ namespace dark::internal {
     }
 
     struct DiagnosticMarker {
-        static constexpr std::string_view primary   = "^";
-        static constexpr std::string_view quad      = "≣";
-        static constexpr std::string_view tripple   = "≋";
-        static constexpr std::string_view double_   = "≈";
-        static constexpr std::string_view single    = "~";
-        static constexpr std::string_view circle    = "●";
-        static constexpr std::string_view remove    = "x";
-        static constexpr std::string_view add       = "+";
         MarkerKind kind;
         Span span;
         unsigned annotation_index{};
@@ -1214,26 +1216,26 @@ namespace dark::internal {
 
                                         switch (m.kind) {
                                             case MarkerKind::Primary: {
-                                                marker = DiagnosticMarker::primary;
+                                                marker = config.markers.primary;
                                                 z_index += 50;
                                             } break;
                                             case MarkerKind::Secondary: {
                                                 auto count = marker_count_for_each_cell[pos][static_cast<unsigned>(d_level)];
                                                 switch (count) {
-                                                    case 0: case 1: marker = DiagnosticMarker::single; break;
-                                                    case 2: marker = DiagnosticMarker::double_; break;
-                                                    case 3: marker = DiagnosticMarker::tripple; break;
-                                                    default: marker = DiagnosticMarker::quad; break;
+                                                    case 0: case 1: marker = config.markers.single; break;
+                                                    case 2: marker = config.markers.double_; break;
+                                                    case 3: marker = config.markers.tripple; break;
+                                                    default: marker = config.markers.quad; break;
                                                 }
                                             } break;
                                             case MarkerKind::Insert: {
-                                                marker = DiagnosticMarker::add;
+                                                marker = config.markers.insert;
                                                 z_index += 50;
                                                 style.text_color = color;
                                                 style.bold = true;
                                             } break;
                                             case MarkerKind::Delete: {
-                                                marker = DiagnosticMarker::remove; 
+                                                marker = config.markers.remove; 
                                                 z_index += 50;
                                                 style.strike = true;
                                                 style.dim = true;
