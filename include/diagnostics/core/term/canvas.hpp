@@ -845,7 +845,12 @@ namespace dark::term {
 
             if (!style.word_wrap) {
                 style.max_lines = 1;
-                [[maybe_unused]] auto [chunk_start, text_start, bottom_padding, consumed] = draw_text_helper(
+                [[maybe_unused]] auto [
+                    chunk_start,
+                    text_start,
+                    bottom_padding,
+                    consumed
+                ] = draw_text_helper<ShouldDraw>(
                     as,
                     0,
                     0,
@@ -883,7 +888,12 @@ namespace dark::term {
                 max_x = std::max(max_x, x);
                 x = container.x + padding.left;
 
-                auto [chunk_start, text_start, bottom_padding, consumed] = draw_text_helper(
+                auto [
+                    chunk_start,
+                    text_start,
+                    bottom_padding,
+                    consumed
+                ] = draw_text_helper<ShouldDraw>(
                     as,
                     old_chunk_start,
                     old_text_start,
@@ -1227,7 +1237,7 @@ namespace dark::term {
         }
 
         template <bool ShouldDraw = true>
-        constexpr auto draw_text_helper(
+        auto draw_text_helper(
             AnnotatedString const& as,
             std::size_t chunk_start,
             std::size_t text_start,
@@ -1268,6 +1278,7 @@ namespace dark::term {
                 std::size_t chunk_end = std::string_view::npos,
                 std::size_t text_end = std::string_view::npos
             ) -> std::pair<bool, std::size_t> {
+                (void)this;
                 auto y = y_start;
                 auto global_index = dsize_t{};
                 auto needs_underline{false};
