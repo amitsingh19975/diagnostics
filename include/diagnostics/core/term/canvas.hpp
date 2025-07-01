@@ -4,6 +4,8 @@
 #include "../small_vec.hpp"
 #include "annotated_string.hpp"
 #include "color.hpp"
+#include "../../core/cow_string.hpp"
+#include "../../span.hpp"
 #include "terminal.hpp"
 #include "../utf8.hpp"
 #include "style.hpp"
@@ -11,7 +13,7 @@
 #include <cassert>
 #include <cctype>
 #include <cstdint>
-#include <limits>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -774,6 +776,7 @@ namespace dark::term {
             if (!style.bg_color.is_invalid()) {
                 for (auto r = 0u; r < height; r++) {
                     for (auto c = 0u; c < width; ++c) {
+                        if (y + r >= rows() || x + c >= cols()) continue;
                         auto& current = this->operator()(y + r, x + c);
                         if (current.empty()) {
                             draw_pixel(
@@ -812,13 +815,11 @@ namespace dark::term {
         }
 
         constexpr auto draw_text(
-            AnnotatedString as,
+            AnnotatedString const& as,
             dsize_t x,
             dsize_t y,
             TextStyle style = {}
         ) noexcept -> TextRenderResult {
-            as.build_indices();
-
             auto padding = style.padding;
             auto max_space = std::min<size_type>(
                 style.max_width,
@@ -827,12 +828,11 @@ namespace dark::term {
             // |....[----space----]|
 
             auto container = BoundingBox {
-                .x = x + padding.left,
-                .y = y + padding.top,
-                .width = std::max(static_cast<dsize_t>(max_space), padding.right) - padding.right,
+                .x = x,
+                .y = y,
+                .width = static_cast<dsize_t>(max_space),
                 .height = 0
             };
-            max_space = container.width;
 
             auto bbox = BoundingBox(x, y, 0, 0);
             if (max_space == 0) return { bbox, as.size() };
@@ -844,51 +844,63 @@ namespace dark::term {
 
             if (!style.word_wrap) {
                 style.max_lines = 1;
-                auto [consumed, bottom_padding] = draw_text_helper(
+                [[maybe_unused]] auto [chunk_start, text_start, bottom_padding, consumed] = draw_text_helper(
                     as,
+                    0,
+                    0,
                     x,
                     y,
-                    max_space,
                     container,
                     style
                 );
 
                 y += std::max(bottom_padding, padding.bottom) + 1;
-
+                auto width = std::min(x, static_cast<dsize_t>(cols() - 1)) - bbox.x;
                 return {
                     .bbox = BoundingBox(
                         bbox.x,
                         bbox.y,
-                        std::min(x, static_cast<dsize_t>(cols() - 1)) - bbox.x,
+                        std::min(width + padding.right, container.width),
                         y - bbox.y
                     ),
                     .left = as.size() - consumed
                 };
             }
             auto current_line = 0u;
-            while (!as.empty()) {
+            auto old_chunk_start = std::size_t{};
+            auto old_text_start = std::size_t{};
+            auto total_consumed = std::size_t{};
+            auto total_size = std::size_t{};
+
+            for (auto const& el: as.strings) {
+                total_size += el.first.size();
+            }
+
+            while (total_consumed < total_size) {
                 current_line += 1;
 
                 max_x = std::max(max_x, x);
-                x = container.x;
+                x = container.x + padding.left;
 
-                auto old_size = as.size();
-                auto [consumed, bottom_padding] = draw_text_helper(
+                auto [chunk_start, text_start, bottom_padding, consumed] = draw_text_helper(
                     as,
+                    old_chunk_start,
+                    old_text_start,
                     x, y,
-                    max_space,
                     container,
                     style,
                     current_line
                 );
-                as.shift(consumed);
+                old_chunk_start = chunk_start;
+                old_text_start = text_start;
+                total_consumed += consumed;
 
                 // Ensures no infinite loop
-                if (old_size == as.size()) break;
+                if (consumed == 0) break;
                 y += bottom_padding + 1;
                 if (current_line == style.max_lines) break;
             }
-            x = std::min(std::max(max_x, x), container.width) + padding.right;
+            x = std::min(std::max(max_x, x), container.bottom_right().first) + padding.right;
             y += padding.bottom;
 
             return {
@@ -930,7 +942,7 @@ namespace dark::term {
                 x + 1, y + 1,
                 style
             );
-            auto box = draw_box(x, y, bbox.width, bbox.height, style.to_style(), normal_set, bold_set);
+            auto box = draw_box(x, y, bbox.width + 1, bbox.height + 1, style.to_style(), normal_set, bold_set);
             return {
                 box,
                 left
@@ -1073,213 +1085,415 @@ namespace dark::term {
             return { bbox, left };
         }
     private:
+        struct MeasureTextResult {
+            unsigned cols_occupied{};
+            bool can_overflow{false};
+            dsize_t global_size{};
+            Span start_overflow{};
+            Span middle_overflow{};
+            std::pair<std::size_t, std::size_t> word_boundary; // word end before cutting off
+            // Minimum line boundry that would fit the line.
+            std::pair<std::size_t, std::size_t> min_line_boundary;
+        };
+
+        constexpr auto measure_single_line_text_width_helper(
+            AnnotatedString const& as,
+            std::size_t chunk_start,
+            std::size_t text_start,
+            BoundingBox container,
+            TextStyle const& style,
+            unsigned total_occupied_cols = {}
+        ) noexcept -> MeasureTextResult {
+            auto const& strs = as.strings;
+            if (strs.empty()) return {};
+
+            auto res = MeasureTextResult();
+
+            res.cols_occupied += style.padding.horizontal();
+            auto max_width = std::max(container.width, style.padding.right) - style.padding.right;
+
+            // auto mid = total_occupied_cols / 2;
+            auto left_size = (std::max(max_width, dsize_t{3}) - 3) / 2;
+
+            auto overflow_portion = std::max(total_occupied_cols, max_width) - max_width;
+            auto middle_overflow_start = dsize_t{};
+
+            for (auto i = chunk_start; i < strs.size(); ++i) {
+                auto const& el = strs[i];
+                auto text = el.first.to_borrowed();
+                auto span = el.second;
+                auto padding = span.padding.value_or(PaddingValues());
+                res.cols_occupied += padding.left;
+                if (total_occupied_cols != 0) {
+                    if (res.start_overflow.empty()) {
+                        if (total_occupied_cols < max_width + res.cols_occupied) {
+                            res.start_overflow = Span(0, res.global_size);
+                        }
+                    }
+                    if (res.middle_overflow.empty()) {
+                        if (res.cols_occupied >= left_size && middle_overflow_start == 0) {
+                            middle_overflow_start = res.global_size;
+                        }
+                        if (res.cols_occupied >= overflow_portion + left_size) {
+                            res.middle_overflow = Span(middle_overflow_start, res.global_size);
+                        }
+                    }
+                }
+
+                bool is_between_word = !std::isspace(text[text_start]);
+                auto old_cols = res.cols_occupied;
+                while (text_start < text.size()) {
+                    auto len = core::utf8::get_length(text[text_start]);
+                    auto inc = text[text_start] == '\t' ? tab_width : 1;
+
+                    if (text[text_start] == '\n') {
+                        res.min_line_boundary = { i + 1, text_start };
+                        res.word_boundary = res.min_line_boundary;
+                        return res;
+                    }
+                    if (res.cols_occupied + inc <= max_width) {
+                        auto old_is_between_word = is_between_word;
+                        if (text_start + len < text.size()) {
+                            is_between_word = !std::isspace(text[text_start + len]);
+
+                            if (is_between_word != old_is_between_word) {
+                                res.word_boundary = { i + 1, text_start + len };
+                            }
+                        }
+                    } else {
+                        res.can_overflow = true;
+                    }
+
+                    res.cols_occupied += inc;
+                    if (total_occupied_cols != 0) {
+                        if (res.start_overflow.empty()) {
+                            if (total_occupied_cols < max_width + res.cols_occupied) {
+                                res.start_overflow = Span(0, res.global_size);
+                            }
+                        }
+                        if (res.middle_overflow.empty()) {
+                            if (res.cols_occupied >= left_size && middle_overflow_start == 0) {
+                                middle_overflow_start = res.global_size;
+                            }
+                            if (res.cols_occupied >= overflow_portion + left_size) {
+                                res.middle_overflow = Span(middle_overflow_start, res.global_size);
+                            }
+                        }
+                    }
+                    text_start += len;
+                    res.global_size += len;
+                }
+
+                if (res.cols_occupied - old_cols == 0) {
+                    res.cols_occupied -= padding.left;
+                } else {
+                    res.cols_occupied += padding.right;
+                }
+
+                if (total_occupied_cols != 0) {
+                    if (res.start_overflow.empty()) {
+                        if (total_occupied_cols < max_width + res.cols_occupied) {
+                            res.start_overflow = Span(0, res.global_size);
+                        }
+                    }
+                    if (res.middle_overflow.empty()) {
+                        if (res.cols_occupied >= left_size && middle_overflow_start == 0) {
+                            middle_overflow_start = res.global_size;
+                        }
+                        if (res.cols_occupied >= overflow_portion + left_size) {
+                            res.middle_overflow = Span(middle_overflow_start, res.global_size);
+                        }
+                    }
+                }
+                text_start = 0;
+            }
+
+            if (res.cols_occupied <= max_width) {
+                res.word_boundary = { std::string_view::npos, std::string_view::npos };
+            }
+            return res;
+        }
+
+        template <bool ShouldDraw = true>
         constexpr auto draw_text_helper(
-            AnnotatedString& as,
+            AnnotatedString const& as,
+            std::size_t chunk_start,
+            std::size_t text_start,
             dsize_t& x,
             dsize_t y,
-            size_type size,
             BoundingBox container,
             TextStyle style = {},
-            dsize_t current_line = 1,
-            size_type max_as_size = std::numeric_limits<size_type>::max()
-        ) noexcept -> std::pair<std::size_t, unsigned> {
-            auto tmp_x = x;
-            auto total_consumed = 0ul;
-            std::tuple<std::string_view, SpanStyle, std::string_view> temp_buff[max_cols + 5] = {};
-            auto start_x = x;
-            unsigned bottom_padding = 0u;
-            unsigned top_padding = 0u;
-            auto text_size = std::min(as.size(), max_as_size);
+            dsize_t current_line = 1
+        ) noexcept -> std::tuple<std::size_t, std::size_t, unsigned, std::size_t> {
+            if (current_line > style.max_lines) return {
+                chunk_start, text_start, 0, 0
+            };
+            auto width_info = measure_single_line_text_width_helper(
+                as,
+                chunk_start,
+                text_start,
+                container,
+                style
+            );
 
-            auto helper = [
-                &total_consumed,
-                &as, &tmp_x,
-                size, &temp_buff,
+            unsigned bottom_padding = 0, top_padding = 0;
+            auto max_x = container.bottom_right().first;
+            max_x = std::max(max_x, style.padding.right) - style.padding.right;
+
+            auto render = [
+                this,
+                &as, &x, y_start = y,
                 &bottom_padding,
                 &top_padding,
-                current_line,
-                style
+                style,
+                max_x,
+                current_line
             ](
-                size_type start, size_type end
-            ) { 
-                struct State {
-                    size_type start;
-                    size_type total_consumed;
-                    unsigned x;
-                    unsigned bottom_padding;
-                    unsigned top_padding;
-                    SpanStyle word_style;
-                };
-                auto stored_state = State {
-                    .start = start,
-                    .total_consumed = total_consumed,
-                    .x = tmp_x,
-                    .bottom_padding = bottom_padding,
-                    .top_padding = top_padding,
-                    .word_style = {}
-                };
+                std::size_t& chunk_start,
+                std::size_t& text_start,
+                Span overflow_section,
+                unsigned cols_occupied,
+                std::size_t chunk_end = std::string_view::npos,
+                std::size_t text_end = std::string_view::npos
+            ) -> std::pair<bool, std::size_t> {
+                auto y = y_start;
+                auto global_index = dsize_t{};
+                auto needs_underline{false};
+                std::size_t consumed = std::size_t{};
+                chunk_end = std::min(as.strings.size(), chunk_end);
+                if (chunk_start >= chunk_end) return { false, 0 };
 
-                if (style.trim_prefix) {
-                    for (; start < end; ++start, ++total_consumed) {
-                        [[maybe_unused]] auto [ch, sp_style, marker, mp] = as[start];
-                        if (sp_style.padding) {
-                            auto st = sp_style.padding.value_or(PaddingValues());
-                            st.left = 0;
-                            as.update_padding(start, st);
-                        }
-                        if (!std::isspace(ch[0])) break;
-                    }
+                auto free_space = std::max(max_x, cols_occupied) - cols_occupied;
+
+                if (style.align == TextAlign::Center) {
+                    x += free_space / 2;
+                } else if (style.align == TextAlign::Right) {
+                    x += free_space;
                 }
 
-                for (; start < end && (tmp_x < size); ++start, ++total_consumed) {
-                    auto [ch, span_style, marker, marker_padding] = as[start];
-                    if (as.is_word_end(start)) {
-                        stored_state = State {
-                            .start = start,
-                            .total_consumed = total_consumed,
-                            .x = tmp_x,
-                            .bottom_padding = bottom_padding,
-                            .top_padding = top_padding,
-                            .word_style = {}
-                        };
+                auto first_style = as.strings[chunk_start].second;
+                auto start_x = x + first_style.padding.value_or(PaddingValues()).left;
+
+                for (auto i = chunk_start; i < chunk_end; ++i) {
+                    auto const& el = as.strings[i];
+                    auto text = el.first.to_borrowed();
+                    auto len = static_cast<dsize_t>(core::utf8::calculate_size(text));
+
+                    auto span = Span::from_size(global_index, len);
+
+                    if (overflow_section.force_merge(span) != overflow_section) {
+                        auto padding = el.second.padding.value_or(PaddingValues());
+                        top_padding = std::max(top_padding, padding.top);
                     }
-                    auto padding = span_style.padding.value_or(PaddingValues());
-                    tmp_x += padding.left;
-
-                    auto np = padding;
-                    np.left = 0;
-                    as.update_padding(start, np);
-
-                    if (tmp_x + padding.right >= size) {
-                        break;
-                    }
-                    bottom_padding = std::max({
-                        padding.bottom,
-                        bottom_padding,
-                        marker_padding
-                    });
-                    top_padding = std::max(
-                        padding.top,
-                        top_padding
-                    );
-
-                    if (ch[0] == '\n') {
-                        ++total_consumed;
-                        break;
-                    } else if (ch[0] == '\t') {
-                        for (auto i = 0ul; i < tab_width; ++i) {
-                            temp_buff[tmp_x++] = { " ", span_style, marker };
-                        }
-                        continue;
-                    }
-                    temp_buff[tmp_x++] = { ch, span_style, marker };
-                    tmp_x += padding.right;
-                    np.right = 0;
-                    as.update_padding(start, np);
-                }
-
-                if (style.break_whitespace && !as.is_word_end(start)) {
-                    start = stored_state.start;
-                    total_consumed = stored_state.total_consumed;
-                    tmp_x = stored_state.x;
-                    bottom_padding = stored_state.bottom_padding;
-                    top_padding = stored_state.top_padding;
-                    for (auto i = tmp_x; i < size; ++i) temp_buff[i] = {};
+                    global_index += len;
                 }
 
                 if (current_line == 1) {
                     top_padding = std::max(top_padding, style.padding.top) - style.padding.top;
                 }
 
-                if (current_line == style.max_lines || (as.size() - total_consumed) == 0) {
-                    bottom_padding = std::max(bottom_padding, style.padding.bottom);
+                y += top_padding;
+
+                global_index = 0;
+                auto ellipsis_rendered{false};
+
+                for (; chunk_start < chunk_end; ++chunk_start) {
+                    auto const& el = as.strings[chunk_start];
+                    auto text = el.first.to_borrowed();
+                    auto span_style = el.second;
+                    if (max_x <= x) break;
+
+                    auto padding = span_style.padding.value_or(PaddingValues());
+                    x += padding.left;
+
+                    auto old_x = x;
+                    needs_underline |= !span_style.underline_marker.empty();
+
+                    auto marker_index = std::size_t{};
+                    text_end = std::min(text.size(), text_end);
+                    if constexpr (ShouldDraw) {
+                        if (!ellipsis_rendered) {
+                            if (style.max_lines == current_line && cols_occupied > max_x) {
+                                if (style.overflow == TextOverflow::start_ellipsis) {
+                                    auto st = first_style.to_style(style);
+                                    for (auto i = 0ul; i < 3 && x < max_x; ++i) {
+                                        draw_pixel(x++, y, ".", st);
+                                    }
+                                    ellipsis_rendered = true;
+                                }
+                            }
+                        }
+                    }
+
+                    while (text_start < text_end && x < max_x) {
+                        auto len = core::utf8::get_length(text[text_start]);
+                        consumed += len;
+
+                        auto can_skip = overflow_section.is_between(global_index);
+
+                        auto txt = text.substr(text_start, len);
+                        text_start += len;
+                        global_index += len;
+
+                        if (can_skip) {
+                            if (!span_style.underline_marker.empty()) {
+                                auto mlen = core::utf8::get_length(text[marker_index]);
+                                marker_index = (marker_index + mlen) % span_style.underline_marker.size();
+                            }
+
+                            if constexpr (ShouldDraw) {
+                                if (!ellipsis_rendered) {
+                                    if (style.max_lines == current_line && cols_occupied > max_x) {
+                                        if (style.overflow == TextOverflow::middle_ellipsis) {
+                                            auto st = first_style.to_style(style);
+                                            for (auto i = 0ul; i < 3 && x < max_x; ++i) {
+                                                draw_pixel(x++, y, ".", st);
+                                            }
+                                            ellipsis_rendered = true;
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        auto iter = 1ul;
+                        if (txt[0] == '\t') {
+                            iter = tab_width;
+                            txt = " ";
+                        } else if (text[text_start] == '\n') {
+                            return { needs_underline, consumed };
+                        }
+
+                        for (auto i = 0ul; i < iter && x < max_x; ++i, ++x) {
+                            if constexpr (ShouldDraw) {
+                                draw_pixel(x, y, txt, span_style.to_style(style));
+                                if (span_style.underline_marker.empty()) continue;
+                                auto mlen = core::utf8::get_length(text[marker_index]);
+                                draw_pixel(x, y + 1, span_style.underline_marker.substr(marker_index, mlen), span_style.to_style(style));
+                            }
+                        }
+
+                        if (!span_style.underline_marker.empty()) {
+                            auto mlen = core::utf8::get_length(text[marker_index]);
+                            marker_index = (marker_index + mlen) % span_style.underline_marker.size();
+                        }
+                    }
+
+                    if (x - old_x == 0) {
+                        x -= padding.left;
+                    } else {
+                        x += padding.right;
+                        bottom_padding = std::max(bottom_padding, padding.bottom);
+                        top_padding = std::max(top_padding, padding.top);
+                    }
+
+                    if (text_start < text.size()) break;
+
+                    text_end = std::string_view::npos;
+                    text_start = 0;
                 }
+
+                if constexpr (ShouldDraw) {
+                    if (style.max_lines == current_line && cols_occupied > max_x) {
+                        if (style.overflow == TextOverflow::ellipsis) {
+                            auto st = as.strings[std::min(chunk_start, as.strings.size() - 1)].second.to_style(style);
+                            start_x = std::max({x, max_x, dsize_t{3}}) - 3;
+                            for (auto i = 0ul; i < 3 && start_x < max_x; ++i) {
+                                draw_pixel(start_x++, y, ".", st);
+                            }
+                        }
+                    }
+                }
+
+                x = std::min(max_x, x);
+                return { needs_underline, consumed };
             };
 
-            if (current_line < style.max_lines) {
-                helper(0, text_size);
-            } else {
-                switch (style.overflow) {
-                case TextOverflow::none: {
-                    helper(0, text_size);
-                } break;
-                case TextOverflow::ellipsis: {
-                    helper(0, text_size);
+            auto needs_underline{false};
 
-                    if (total_consumed >= as.size()) break;
-                    auto const buff_size = (tmp_x - start_x);
-                    auto dots = std::min(buff_size, 3u);
-                    for (auto i = 0ul; i < dots; ++i) {
-                        temp_buff[tmp_x - 1 - i] = { ".", {}, {} };
-                    }
-                } break;
-                case TextOverflow::middle_ellipsis: {
-                    auto text_len = std::min(text_size, max_cols);
-                    auto middle = text_len / 2;
-                    auto mid_col = size / 2;
-                    auto s0 = 0ul;
-                    auto e0 = std::min(std::max(middle, 2ul) - 2, mid_col);
-                    auto s1 = std::max(mid_col, text_len) - mid_col - 2;
-                    auto e1 = text_len;
-                    helper(s0, e0);
-                    tmp_x += 5;
-                    helper(s1, e1);
-
-                    if (total_consumed >= as.size()) break;
-
-                    temp_buff[e0] = { " ", {}, {} };
-                    temp_buff[e0 + 1] = { ".", {}, {} };
-                    temp_buff[e0 + 2] = { ".", {}, {} };
-                    temp_buff[e0 + 3] = { ".", {}, {} };
-                    temp_buff[s1] = { " ", {}, {} };
-                } break;
-                case TextOverflow::start_ellipsis: {
-                    auto total_len = text_size;
-                    auto mid_col = std::max(size, size_type{3}) - 3;
-                    auto s0 = std::max(mid_col, total_len) - mid_col;
-                    auto e0 = total_len;
-                    helper(s0, e0);
-                    if (total_consumed >= as.size()) break;
-
-                    temp_buff[tmp_x++] = { ".", {}, {} };
-                    temp_buff[tmp_x++] = { ".", {}, {} };
-                    temp_buff[tmp_x++] = { ".", {}, {} };
-                } break;
-                }
+            auto consumed_text = std::size_t{};
+            auto chunk_end = std::string_view::npos;
+            auto text_end = std::string_view::npos;
+            if (style.break_whitespace) {
+                chunk_end = width_info.word_boundary.first;
+                text_end = width_info.word_boundary.second;
             }
 
-            y += top_padding;
-
-            auto start_offset = 0u;
-            auto space_left = (std::max(static_cast<dsize_t>(container.width), tmp_x) - tmp_x);
-            if (style.align == TextAlign::Center) {
-                start_offset += space_left / 2;
-            } else if (style.align == TextAlign::Right) {
-                start_offset += space_left;
-            }
-
-            for (; start_x < tmp_x; ++start_x) {
-                auto [ch, st, marker] = temp_buff[start_x];
-                draw_pixel(
-                    start_x + start_offset,
-                    y,
-                    ch,
-                    st.to_style(style)
+            if (!style.word_wrap) {
+                auto [underline, consumed] = render(
+                    chunk_start,
+                    text_start,
+                    {},
+                    width_info.cols_occupied,
+                    chunk_end,
+                    text_end
                 );
-                if (!marker.empty()) {
-                    draw_pixel(
-                        start_x + start_offset,
-                        y + 1,
-                        marker,
-                        st.to_style(style)
+                needs_underline = underline;
+                consumed_text = consumed;
+            } else {
+                if (current_line < style.max_lines) {
+                    auto [underline, consumed] = render(
+                        chunk_start,
+                        text_start,
+                        {},
+                        width_info.cols_occupied,
+                        chunk_end,
+                        text_end
                     );
+                    needs_underline = underline;
+                    consumed_text = consumed;
+                } else {
+                    auto cols_occupied = width_info.cols_occupied;
+
+                    width_info = measure_single_line_text_width_helper(
+                        as,
+                        chunk_start,
+                        text_start,
+                        container,
+                        style,
+                        cols_occupied
+                    );
+
+                    if (style.break_whitespace) {
+                        chunk_end = width_info.word_boundary.first;
+                        text_end = width_info.word_boundary.second;
+                    }
+
+                    auto overflow_span = Span();
+                    if (style.overflow == TextOverflow::start_ellipsis) {
+                        overflow_span = width_info.start_overflow;
+                        overflow_span = Span(
+                            overflow_span.start(),
+                            overflow_span.end() + 6
+                        );
+                    } else if (style.overflow == TextOverflow::middle_ellipsis) {
+                        overflow_span = width_info.middle_overflow;
+                    }
+
+                    auto [underline, consumed] = render(
+                        chunk_start,
+                        text_start,
+                        overflow_span,
+                        cols_occupied,
+                        chunk_end,
+                        text_end
+                    );
+                    needs_underline = underline;
+                    consumed_text = consumed;
                 }
             }
 
-            x = tmp_x + start_offset;
-            return { total_consumed, bottom_padding + top_padding };
-        }
+            if (current_line == style.max_lines) {
+                bottom_padding = std::max(style.padding.bottom, bottom_padding) - style.padding.bottom;
+            }
 
+            return {
+                chunk_start,
+                text_start,
+                bottom_padding + top_padding + static_cast<unsigned>(needs_underline),
+                consumed_text
+            };
+        }
     private:
         size_type m_rows{};
         size_type m_cols{};
