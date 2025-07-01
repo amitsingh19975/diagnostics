@@ -1785,21 +1785,12 @@ namespace dark::internal {
                 term::Point /*message coord*/
             >
         > message_to_span{};
-        core::SmallVec<unsigned> min_start_pos(as.messages.size(), static_cast<unsigned>(max_cols));
-        for (auto const& [pt, markers]: message_markers) {
-            for (auto const& m: markers) {
-                auto& tmp = as.spans[m.annotation_index];
-                auto index = tmp.message_index;
-                min_start_pos[index] = std::min(pt.x, min_start_pos[index]);
-            }
-        }
 
         for (auto const& [pt, markers]: message_markers) {
             for (auto const& m: markers) {
                 auto& tmp = as.spans[m.annotation_index];
                 auto index = tmp.message_index;
-                auto pos = min_start_pos[index];
-                auto& [span_info, coord] = message_to_span[pos];
+                auto& [span_info, coord] = message_to_span[pt.x];
                 coord = pt;
                 auto it = std::find_if(span_info.begin(), span_info.end(), [index](auto const& l) {
                     return index == std::get<1>(l);
@@ -1870,10 +1861,12 @@ namespace dark::internal {
                     .push(message);
 
                 auto diagnostic_counts = std::size_t{};
+                auto current_level = DiagnosticLevel::Help;
                 for (auto l = 0ul; l < lvls.size(); ++l) {
                     if (lvls[l]) {
                         auto level = static_cast<DiagnosticLevel>(l);
                         dominant_level = std::max(level, dominant_level);
+                        current_level = std::max(current_level, level);
                         ++diagnostic_counts;
                     }
                 }
@@ -1893,7 +1886,7 @@ namespace dark::internal {
                     }
                 }
 
-                auto color = diagnostic_level_to_color(dominant_level);
+                auto color = diagnostic_level_to_color(current_level);
 
                 auto x = x_pos + 2;
                 auto bp = config.bullet_point;
