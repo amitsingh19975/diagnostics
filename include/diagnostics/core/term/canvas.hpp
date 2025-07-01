@@ -814,6 +814,7 @@ namespace dark::term {
             return draw_text(std::move(as), x, y, style);
         }
 
+        template <bool ShouldDraw = true>
         constexpr auto draw_text(
             AnnotatedString const& as,
             dsize_t x,
@@ -909,6 +910,16 @@ namespace dark::term {
             };
         }
 
+        auto measure_text(
+            AnnotatedString const& s,
+            dsize_t x,
+            dsize_t y,
+            TextStyle style = {}
+        ) noexcept -> BoundingBox {
+            auto tmp = draw_text<false>(s, x, y, style);
+            return tmp.bbox;
+        }
+
         auto draw_boxed_text(
             std::string_view text,
             dsize_t x,
@@ -929,7 +940,7 @@ namespace dark::term {
         }
 
         constexpr auto draw_boxed_text(
-            AnnotatedString text,
+            AnnotatedString const& text,
             dsize_t x,
             dsize_t y,
             TextStyle style = {},
@@ -950,8 +961,8 @@ namespace dark::term {
         }
 
         constexpr auto draw_boxed_text_with_header(
-            AnnotatedString header,
-            AnnotatedString text,
+            AnnotatedString const& header,
+            AnnotatedString const& text,
             dsize_t x,
             dsize_t y,
             TextStyle body_style = {},
@@ -1014,7 +1025,7 @@ namespace dark::term {
 
         auto draw_boxed_text_with_header(
             std::string_view header,
-            AnnotatedString text,
+            AnnotatedString const& text,
             dsize_t x,
             dsize_t y,
             TextStyle body_style = {},
@@ -1034,7 +1045,7 @@ namespace dark::term {
         }
 
         auto draw_boxed_text_with_header(
-            AnnotatedString header,
+            AnnotatedString const& header,
             std::string_view text,
             dsize_t x,
             dsize_t y,
@@ -1084,6 +1095,7 @@ namespace dark::term {
             bbox.height += 1;
             return { bbox, left };
         }
+
     private:
         struct MeasureTextResult {
             unsigned cols_occupied{};
@@ -1311,16 +1323,16 @@ namespace dark::term {
 
                     auto marker_index = std::size_t{};
                     text_end = std::min(text.size(), text_end);
-                    if constexpr (ShouldDraw) {
-                        if (!ellipsis_rendered) {
-                            if (style.max_lines == current_line && cols_occupied > max_x) {
-                                if (style.overflow == TextOverflow::start_ellipsis) {
-                                    auto st = first_style.to_style(style);
-                                    for (auto i = 0ul; i < 3 && x < max_x; ++i) {
+                    if (!ellipsis_rendered) {
+                        if (style.max_lines == current_line && cols_occupied > max_x) {
+                            if (style.overflow == TextOverflow::start_ellipsis) {
+                                auto st = first_style.to_style(style);
+                                for (auto i = 0ul; i < 3 && x < max_x; ++i) {
+                                    if constexpr (ShouldDraw) {
                                         draw_pixel(x++, y, ".", st);
                                     }
-                                    ellipsis_rendered = true;
                                 }
+                                ellipsis_rendered = true;
                             }
                         }
                     }
@@ -1341,16 +1353,16 @@ namespace dark::term {
                                 marker_index = (marker_index + mlen) % span_style.underline_marker.size();
                             }
 
-                            if constexpr (ShouldDraw) {
-                                if (!ellipsis_rendered) {
-                                    if (style.max_lines == current_line && cols_occupied > max_x) {
-                                        if (style.overflow == TextOverflow::middle_ellipsis) {
-                                            auto st = first_style.to_style(style);
-                                            for (auto i = 0ul; i < 3 && x < max_x; ++i) {
+                            if (!ellipsis_rendered) {
+                                if (style.max_lines == current_line && cols_occupied > max_x) {
+                                    if (style.overflow == TextOverflow::middle_ellipsis) {
+                                        auto st = first_style.to_style(style);
+                                        for (auto i = 0ul; i < 3 && x < max_x; ++i) {
+                                            if constexpr (ShouldDraw) {
                                                 draw_pixel(x++, y, ".", st);
                                             }
-                                            ellipsis_rendered = true;
                                         }
+                                        ellipsis_rendered = true;
                                     }
                                 }
                             }
@@ -1393,12 +1405,12 @@ namespace dark::term {
                     text_start = 0;
                 }
 
-                if constexpr (ShouldDraw) {
-                    if (style.max_lines == current_line && cols_occupied > max_x) {
-                        if (style.overflow == TextOverflow::ellipsis) {
-                            auto st = as.strings[std::min(chunk_start, as.strings.size() - 1)].second.to_style(style);
-                            start_x = std::max({x, max_x, dsize_t{3}}) - 3;
-                            for (auto i = 0ul; i < 3 && start_x < max_x; ++i) {
+                if (style.max_lines == current_line && cols_occupied > max_x) {
+                    if (style.overflow == TextOverflow::ellipsis) {
+                        auto st = as.strings[std::min(chunk_start, as.strings.size() - 1)].second.to_style(style);
+                        start_x = std::max({x, max_x, dsize_t{3}}) - 3;
+                        for (auto i = 0ul; i < 3 && start_x < max_x; ++i) {
+                            if constexpr (ShouldDraw) {
                                 draw_pixel(start_x++, y, ".", st);
                             }
                         }
