@@ -18,6 +18,7 @@
 #include <concepts>
 #include <cstddef>
 #include <limits>
+#include <map>
 #include <optional>
 #include <print>
 #include <string_view>
@@ -44,6 +45,7 @@ namespace dark {
         std::string_view dotted_vertical{ term::char_set::line::dotted.vertical };
         std::string_view dotted_horizontal{ term::char_set::line::dotted.horizonal };
         std::string_view bullet_point = "●";
+        std::string_view square = "◼";
         Markers markers{};
         unsigned max_non_marker_lines{4};
         unsigned diagnostic_kind_padding{4};
@@ -845,12 +847,16 @@ namespace dark::internal {
         });
     }
 
+    // Message index to marker coords
+    using message_marker_t = std::unordered_map<term::Point, core::SmallVec<DiagnosticMarker, 2>>;
+
     static inline auto render_source_text(
         term::Canvas& canvas,
         Diagnostic& diag,
         NormalizedDiagnosticAnnotations& as,
         term::BoundingBox ruler_container,
         term::BoundingBox container,
+        message_marker_t& marker_to_message,
         DiagnosticRenderConfig const& config
     ) noexcept -> term::BoundingBox {
         static constexpr auto tab_width = term::Canvas::tab_width;
@@ -865,9 +871,7 @@ namespace dark::internal {
         auto y = container.y;
 
         auto skip_check_for = 0ul;
-
         // Point -> annotation index
-        std::unordered_map<term::Point, core::SmallVec<DiagnosticMarker, 2>> marker_to_message;
 
         auto has_any_marker = [&as](DiagnosticLineTokens const& line) {
             if (line.has_any_marker()) return true;
@@ -1220,7 +1224,7 @@ namespace dark::internal {
                                         token_x_pos + m.span.start(),
                                         y + 1u + rel_y_pos
                                     );
-                                    if (m.is_start) {
+                                    if (m.is_start && m.kind != MarkerKind::Primary) {
                                         auto& marker_to_message_item = marker_to_message[pt];
                                         marker_to_message_item.push_back(m);
                                     }
@@ -1298,6 +1302,17 @@ namespace dark::internal {
                                                 }
                                             );
                                         }
+
+                                        auto rc = ruler_container;
+                                        rc.y = pt.y;
+                                        render_ruler(
+                                            canvas,
+                                            rc,
+                                            {},
+                                            "",
+                                            config.dotted_vertical,
+                                            config.ruler_color
+                                        );
                                     }
                                     x = std::max(tx, x);
                                 }
@@ -1697,7 +1712,10 @@ namespace dark::internal {
                                             std::max(m.span.start(), sz) - sz,
                                             m.span.end()
                                         );
-                                        if (!left.span.empty()) token.markers.push_back(left);
+                                        if (!left.span.empty()) {
+                                            token.markers.push_back(left);
+                                            right.is_start = false;
+                                        }
                                         if (!right.span.empty()) t0.markers.push_back(right);
                                     }
                                     token.text = token.text.substr(0, j);
@@ -1733,7 +1751,207 @@ namespace dark::internal {
                 ++y;
             }
         }
+
         container.y = y;
+        return container;
+    }
+
+    // (marker position, message position)
+    using point_container_t = core::SmallVec<std::tuple<term::Point, term::Point, Color>>;
+
+    static inline auto render_span_messages(
+        term::Canvas& canvas,
+        NormalizedDiagnosticAnnotations& as,
+        term::BoundingBox ruler_container,
+        term::BoundingBox container,
+        message_marker_t const& message_markers,
+        point_container_t& points,
+        DiagnosticRenderConfig const& config
+    ) -> term::BoundingBox {
+        (void)points;
+
+        auto const container_center_x = container.top_left().first + container.width / 2;
+        auto const max_cols = canvas.cols();
+
+        using coord_t = std::tuple<
+                term::Point /*span coord*/,
+                std::size_t /*message index*/,
+                std::array<bool, diagnostic_level_elements_count>
+            >;
+        std::map<
+            dsize_t /*x coord*/,
+            std::pair<
+                core::SmallVec<coord_t, 2>,
+                term::Point /*message coord*/
+            >
+        > message_to_span{};
+        core::SmallVec<unsigned> min_start_pos(as.messages.size(), static_cast<unsigned>(max_cols));
+        for (auto const& [pt, markers]: message_markers) {
+            for (auto const& m: markers) {
+                auto& tmp = as.spans[m.annotation_index];
+                auto index = tmp.message_index;
+                min_start_pos[index] = std::min(pt.x, min_start_pos[index]);
+            }
+        }
+
+        for (auto const& [pt, markers]: message_markers) {
+            for (auto const& m: markers) {
+                auto& tmp = as.spans[m.annotation_index];
+                auto index = tmp.message_index;
+                auto pos = min_start_pos[index];
+                auto& [span_info, coord] = message_to_span[pos];
+                coord = pt;
+                auto it = std::find_if(span_info.begin(), span_info.end(), [index](auto const& l) {
+                    return index == std::get<1>(l);
+                });
+                if (it != span_info.end()) {
+                    auto& lvls = std::get<2>(*it);
+                    lvls[static_cast<std::size_t>(tmp.level)] = true;
+                } else {
+                    auto res = coord_t{ pt, index, {} };
+                    std::get<2>(res)[static_cast<std::size_t>(tmp.level)] = true;
+                    span_info.push_back(std::move(res));
+                }
+            }
+        }
+
+        std::size_t last_x_pos{max_cols};
+
+        for (auto it = message_to_span.rbegin(); it != message_to_span.rend(); ++it) {
+            auto x_pos = it->first + 2;
+            auto& info = it->second;
+            auto& [span_info, pt] = info;
+
+            if (last_x_pos == x_pos) {
+                x_pos = std::max(
+                    container.top_left().first, x_pos - 2
+                );
+            }
+            last_x_pos = x_pos;
+            auto style = term::TextStyle {
+                .word_wrap = true,
+                .break_whitespace = true,
+                .max_width = container.width - 1
+            };
+
+            auto shift_by = 2u;
+            for (auto const& el: span_info) {
+                if (x_pos <= container_center_x) break;
+                auto index = std::get<1>(el);
+                auto const& message = as.messages[index];
+                while (x_pos > container_center_x) {
+                    auto box = canvas.measure_text(
+                        message.first,
+                        x_pos,
+                        container.y,
+                        style
+                    );
+                    auto pos = box.bottom_right().first + 4;
+
+                    if (box.height > 2 || (box.width > 40 && box.height > 1) || pos >= container.bottom_right().first) {
+                        x_pos -= shift_by;
+                        shift_by *= 2;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            unsigned content_width{};
+            container.y += 1;
+            auto y = container.y + 1;
+            auto dominant_level = DiagnosticLevel::Help;
+
+            bool should_show_bullet_points = span_info.size() > 1;
+            for (auto const& [spt, index, lvls]: span_info) {
+                (void)spt;
+                auto const& message = as.messages[index].first;
+                auto tmp_as = AnnotatedString::builder()
+                    .push(message);
+
+                auto diagnostic_counts = std::size_t{};
+                for (auto l = 0ul; l < lvls.size(); ++l) {
+                    if (lvls[l]) {
+                        auto level = static_cast<DiagnosticLevel>(l);
+                        dominant_level = std::max(level, dominant_level);
+                        ++diagnostic_counts;
+                    }
+                }
+
+                if (diagnostic_counts > 1) {
+                    (void)tmp_as.push(" ");
+                    for (auto l = 0ul; l < lvls.size(); ++l) {
+                        if (lvls[l]) {
+                            auto level = static_cast<DiagnosticLevel>(l);
+                            (void)tmp_as.push(
+                                config.square,
+                                {
+                                    .text_color = diagnostic_level_to_color(level)
+                                }
+                            );
+                        }
+                    }
+                }
+
+                auto color = diagnostic_level_to_color(dominant_level);
+
+                auto x = x_pos + 2;
+                auto bp = config.bullet_point;
+                if (should_show_bullet_points) {
+                    canvas.draw_pixel(x, y, bp, {
+                        .text_color = color
+                    });
+                }
+
+                auto padding = static_cast<dsize_t>(should_show_bullet_points);
+                [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
+                    tmp_as.build(),
+                    x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
+                    y,
+                    style
+                );
+                y += text_container.height;
+                content_width = std::min(std::max(content_width, text_container.width + 6 + padding), container.width);
+            }
+
+            auto color = diagnostic_level_to_color(dominant_level);
+            auto content_height = (y - container.y - 1);
+            auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
+            auto mid_point = total_height / 2;
+            auto box = term::BoundingBox {
+                .x = x_pos,
+                .y = container.y,
+                .width = std::min(content_width, container.bottom_right().first - x_pos),
+                .height = total_height - 1
+            };
+            container.y = y + 1;
+            (void)mid_point;
+
+            canvas.draw_box(
+                box.x,
+                box.y,
+                box.width,
+                box.height,
+                {
+                    .text_color = color,
+                    .z_index = static_cast<int>(dominant_level)
+                },
+                config.box_normal,
+                config.box_bold
+            );
+        }
+
+        while (ruler_container.y < container.y) {
+            render_ruler(
+                canvas,
+                ruler_container,
+                {},
+                config.line_normal.vertical,
+                config.line_normal.vertical,
+                config.ruler_color
+            );
+            ++ruler_container.y;
+        }
         return container;
     }
 
@@ -1771,7 +1989,6 @@ namespace dark::internal {
                 });
                 auto padding = static_cast<dsize_t>(should_show_bullet_points);
                 [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
-                    // WARN: do not move the annotated string since it is shared.
                     std::get<0>(as.messages[as.orphans[i].message_index]),
                     x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
                     y,
@@ -1922,17 +2139,31 @@ namespace dark {
 
         auto annotations = normalize_diagnostic_messages(diag);
 
+        auto message_markers = message_marker_t{};
         content_container = render_source_text(
             canvas,
             diag,
             annotations,
             ruler_container,
             content_container,
+            message_markers,
             config
         );
 
         ruler_container.y = content_container.y;
 
+        point_container_t points{};
+        content_container = render_span_messages(
+            canvas,
+            annotations,
+            ruler_container,
+            content_container,
+            message_markers,
+            points,
+            config
+        );
+
+        ruler_container.y = content_container.y;
         render_orphan_messages(
             canvas,
             annotations,
