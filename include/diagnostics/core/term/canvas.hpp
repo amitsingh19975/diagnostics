@@ -440,7 +440,8 @@ namespace dark::term {
                     draw_pixel(
                         x,
                         p1.y,
-                        set.horizonal
+                        set.horizonal,
+                        style
                     );
                 }
             } else if (p1.y < p2.y) {
@@ -464,7 +465,8 @@ namespace dark::term {
                     draw_pixel(
                         bx,
                         y,
-                        set.vertical
+                        set.vertical,
+                        style
                     );
                 }
 
@@ -476,7 +478,8 @@ namespace dark::term {
                         draw_pixel(
                             x,
                             by,
-                            set.horizonal
+                            set.horizonal,
+                            style
                         );
                     }
                     auto corner = top_bias ? set.turn_right : set.turn_left;
@@ -484,7 +487,8 @@ namespace dark::term {
                         draw_pixel(
                             bx,
                             by,
-                            corner
+                            corner,
+                            style
                         );
                     }
                 }
@@ -508,7 +512,8 @@ namespace dark::term {
                     draw_pixel(
                         bx,
                         y,
-                        set.vertical
+                        set.vertical,
+                        style
                     );
                 }
 
@@ -520,7 +525,8 @@ namespace dark::term {
                         draw_pixel(
                             x,
                             by,
-                            set.horizonal
+                            set.horizonal,
+                            style
                         );
                     }
 
@@ -529,7 +535,8 @@ namespace dark::term {
                         draw_pixel(
                             bx,
                             by,
-                            corner
+                            corner,
+                            style
                         );
                     }
                 }
