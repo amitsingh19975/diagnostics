@@ -47,9 +47,18 @@ namespace dark {
         std::string_view bullet_point = "●";
         std::string_view square = "◼";
         Markers markers{};
+        std::size_t max_message_characters_per_line{60};
         unsigned max_non_marker_lines{4};
         unsigned diagnostic_kind_padding{4};
-        Color ruler_color{Color::Blue};
+        Color ruler_color{Color::Magenta};
+        std::array<Color, diagnostic_level_elements_count> level_to_color{
+            /*Help   */ Color::Green,
+            /*Note   */ Color::Blue,
+            /*Warning*/ Color::Yellow,
+            /*Error  */ Color::Red,
+            /*Insert */ Color::BrightGreen,
+            /*Delete */ Color::BrightRed
+        };
     };
 } // namespace dark
 
@@ -59,6 +68,7 @@ namespace dark::internal {
         static constexpr unsigned diagnostic_source = 2;
         static constexpr unsigned diagnostic_ruler = 3;
         static constexpr unsigned diagnostic_annotation_base_offset = 4;
+        static constexpr unsigned diagnostic_orphan_message = 5;
     };
 
     template <core::IsFormattable T>
@@ -79,17 +89,14 @@ namespace dark::internal {
         }
     }
 
-    constexpr auto diagnostic_level_to_color(DiagnosticLevel level) noexcept -> Color {
-        switch (level) {
-        case DiagnosticLevel::Help: return Color::Green;
-        case DiagnosticLevel::Note: return Color::Blue;
-        case DiagnosticLevel::Warning: return Color::Yellow;
-        case DiagnosticLevel::Error: return Color::Red;
-        case DiagnosticLevel::Insert: return Color::Green;
-        case DiagnosticLevel::Delete: return Color::Red;
-          break;
-        }
+    constexpr auto diagnostic_level_to_color(std::span<Color> colors, DiagnosticLevel level) noexcept -> Color {
+        return colors[static_cast<std::size_t>(level)];
     }
+
+    constexpr auto diagnostic_level_to_color(std::span<const Color> colors, DiagnosticLevel level) noexcept -> Color {
+        return colors[static_cast<std::size_t>(level)];
+    }
+
     constexpr auto diagnostic_level_code_prefix(DiagnosticLevel level) noexcept -> std::string_view {
         switch (level) {
         case DiagnosticLevel::Help: return "H";
@@ -213,7 +220,7 @@ namespace dark::internal {
         auto code = convert_diagnostic_kind_to_string(diag.kind, config.diagnostic_kind_padding);
         auto tag = to_string(diag.level);
         auto span_style = SpanStyle {
-            .text_color = diagnostic_level_to_color(diag.level),
+            .text_color = diagnostic_level_to_color(std::span(config.level_to_color), diag.level),
             .bold = true,
         };
         auto bbox = term::BoundingBox{};
@@ -322,7 +329,7 @@ namespace dark::internal {
         auto file_info_style = SpanStyle{ .bold = true };
 
         auto line_style = SpanStyle {
-            .text_color = Color::Blue
+            .text_color = config.ruler_color
         };
 
         auto an = AnnotatedString::builder()
@@ -1243,7 +1250,7 @@ namespace dark::internal {
 
                                         auto marker = std::string_view{};
                                         int z_index = static_cast<int>(d_level);
-                                        auto color = diagnostic_level_to_color(d_level);
+                                        auto color = diagnostic_level_to_color(std::span(config.level_to_color), d_level);
                                         auto style = token.to_style();
 
                                         switch (m.kind) {
@@ -1790,19 +1797,25 @@ namespace dark::internal {
             >
         > message_to_span{};
 
+        // merge those message that have same offset and index
         for (auto const& [pt, markers]: message_markers) {
             for (auto const& m: markers) {
                 auto& tmp = as.spans[m.annotation_index];
                 auto index = tmp.message_index;
                 auto& [span_info, coord] = message_to_span[pt.x];
                 coord = pt;
+                // find message with same index
                 auto it = std::find_if(span_info.begin(), span_info.end(), [index](auto const& l) {
                     return index == std::get<1>(l);
                 });
+
+                // if message with same index found, mark its diagnostic level.
+                // This way we render single message, but all diagnostic indicator at the end.
                 if (it != span_info.end()) {
                     auto& lvls = std::get<2>(*it);
                     lvls[static_cast<std::size_t>(tmp.level)] = true;
                 } else {
+                    // if message not found, insert a new entry.
                     auto res = coord_t{ pt, index, {} };
                     std::get<2>(res)[static_cast<std::size_t>(tmp.level)] = true;
                     span_info.push_back(std::move(res));
@@ -1812,37 +1825,62 @@ namespace dark::internal {
 
         std::size_t last_x_pos{max_cols};
 
+        auto const character_limit = std::min(
+            container.width - 1,
+            static_cast<unsigned>(config.max_message_characters_per_line)
+        );
+
+        // Since we're using ordered map, we iterate in reverse if we render from back to start.
         for (auto it = message_to_span.rbegin(); it != message_to_span.rend(); ++it) {
             auto x_pos = it->first;
             auto& info = it->second;
             auto& [span_info, pt] = info;
 
+            // if messages somehow has same x position, we shift it by 2 places
+            // so we have some breathing space for path to pass easily, reducing the intersections.
             if (last_x_pos == x_pos) {
                 x_pos = std::max(
-                    container.top_left().first, x_pos
+                    container.top_left().first, x_pos - 2
                 );
             }
             last_x_pos = x_pos;
             auto style = term::TextStyle {
                 .word_wrap = true,
                 .break_whitespace = true,
-                .max_width = container.width - 1
+                .max_width = character_limit
             };
 
             auto shift_by = 2u;
+            bool should_show_bullet_points = span_info.size() > 1;
+            // Now, try to find appropriate x coordinate of the message
+            // so we can reduce the number of line breaks and squeezing the
+            // message (avoids unreadable texts)
             for (auto const& el: span_info) {
                 if (x_pos <= container_center_x) break;
                 auto index = std::get<1>(el);
                 auto const& message = as.messages[index];
                 auto prefix_len = std::size_t{};
                 auto lvls = std::get<2>(el);
+                auto diagnostic_counts = std::size_t{};
+                // find number of diagnostics and max diagnostic name size
                 for (auto l = 0ul; l < lvls.size(); ++l) {
                     if (lvls[l]) {
                         auto level = static_cast<DiagnosticLevel>(l);
                         prefix_len = std::max(to_string(level).size(), prefix_len);
+                        ++diagnostic_counts;
                     }
                 }
 
+                // take bullet points into account inside the x-coordinate.
+                auto padding = static_cast<dsize_t>(should_show_bullet_points);
+                x_pos += padding;
+
+                if (should_show_bullet_points) {
+                    auto bp = config.bullet_point;
+                    x_pos += core::utf8::calculate_size(bp);
+                }
+
+                // shift only if we're on the upper half of the container.
                 while (x_pos > container_center_x) {
                     auto box = canvas.measure_text(
                         message.first,
@@ -1850,9 +1888,18 @@ namespace dark::internal {
                         container.y,
                         style
                     );
-                    auto pos = box.bottom_right().first + 4 + prefix_len + 2;
+                    // calculate the upper end of the x-coordinate
+                    // x = text end x position + padding for box + diagnostic name + padding after
+                    //     diagnostic name + diagnostic indicator + place for bullet point.
+                    auto pos = box.bottom_right().first + 4 + prefix_len + 2 + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
 
-                    if (box.height > 2 || (box.width > 40 && box.height > 1) || pos >= container.bottom_right().first) {
+                    // If we maximized the max characters, then we cannot do anything so we break.
+                    if (style.max_width <= box.width) break;
+
+                    bool should_shift = pos >= container.bottom_right().first;
+                    if (box.height > 2) should_shift = true;
+
+                    if (should_shift) {
                         x_pos -= shift_by;
                         shift_by *= 2;
                     } else {
@@ -1864,10 +1911,12 @@ namespace dark::internal {
             unsigned content_width{};
             container.y += 1;
             auto y = container.y + 1;
+            // Diagnostic level that will be used for rendering boxes and paths.
             auto dominant_level = DiagnosticLevel::Help;
 
-            bool should_show_bullet_points = span_info.size() > 1;
+            // marker position that has biggest y-coordinate.
             auto span_point = std::get<0>(span_info[0]);
+
             for (auto const& [spt, index, lvls]: span_info) {
                 span_point.y = std::max(spt.y, span_point.y);
 
@@ -1884,18 +1933,20 @@ namespace dark::internal {
                     }
                 }
 
+                auto color = diagnostic_level_to_color(std::span(config.level_to_color), current_level);
+
                 auto tmp_as = AnnotatedString::builder();
-
-                auto color = diagnostic_level_to_color(current_level);
-
+                // Add the Diagnostic prefix the builder.
                 (void)tmp_as
                     .with_style({ .text_color = color, .dim = true })
                         .push("[")
                         .push(to_string(current_level))
                         .push("] ");
 
+                // Add the message.
                 (void)tmp_as.push(message);
 
+                // add the diagnostic indicator if more than one.
                 if (diagnostic_counts > 1) {
                     (void)tmp_as.push(" ");
                     for (auto l = diagnostic_level_elements_count; l > 0; --l) {
@@ -1905,7 +1956,7 @@ namespace dark::internal {
                         (void)tmp_as.push(
                             config.square,
                             {
-                                .text_color = diagnostic_level_to_color(level)
+                                .text_color = diagnostic_level_to_color(std::span(config.level_to_color), level)
                             }
                         );
                     }
@@ -1915,6 +1966,7 @@ namespace dark::internal {
                 auto bp = config.bullet_point;
                 if (should_show_bullet_points) {
                     x += 1;
+                    // render bullet points
                     canvas.draw_pixel(x, y, bp, term::Style {
                         .text_color = color,
                         .group_id = GroupId::diagnostic_message
@@ -1923,6 +1975,7 @@ namespace dark::internal {
 
                 style.group_id = GroupId::diagnostic_message;
 
+                // render the message.
                 auto padding = static_cast<dsize_t>(should_show_bullet_points);
                 [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
                     tmp_as.build(),
@@ -1930,13 +1983,15 @@ namespace dark::internal {
                     y,
                     style
                 );
+
+                // increase the y-coordinate by the text container height.
                 y += text_container.height;
-                auto tmp_width = text_container.width + 3;
+                auto tmp_width = text_container.width + /*padding + border*/3;
                 if (should_show_bullet_points) tmp_width += 1;
                 content_width = std::min(std::max(content_width, tmp_width + padding), container.width);
             }
 
-            auto color = diagnostic_level_to_color(dominant_level);
+            auto color = diagnostic_level_to_color(std::span(config.level_to_color), dominant_level);
             auto content_height = (y - container.y - 1);
             auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
             auto box = term::BoundingBox {
@@ -1993,7 +2048,7 @@ namespace dark::internal {
         for (auto i = 0ul; i < as.orphans.size();) {
             auto j = i + 1;
             auto level = as.orphans[i].level;
-            auto color = diagnostic_level_to_color(level);
+            auto color = diagnostic_level_to_color(std::span(config.level_to_color), level);
             for (; j < as.orphans.size(); ++j) {
                 if (as.orphans[j].level != as.orphans[i].level) break;
             }
@@ -2008,7 +2063,8 @@ namespace dark::internal {
                     bp = "";
                 }
                 canvas.draw_pixel(x, y, bp, {
-                    .text_color = diagnostic_level_to_color(level)
+                    .text_color = diagnostic_level_to_color(std::span(config.level_to_color), level),
+                    .group_id = GroupId::diagnostic_orphan_message
                 });
                 auto padding = static_cast<dsize_t>(should_show_bullet_points);
                 [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
@@ -2016,6 +2072,7 @@ namespace dark::internal {
                     x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
                     y,
                     {
+                        .group_id = GroupId::diagnostic_orphan_message,
                         .break_whitespace = true,
                         .max_width = container.width - 2
                     }
@@ -2062,7 +2119,8 @@ namespace dark::internal {
                     ruler_container.width, ruler_container.y,
                     config.box_normal.right_connector,
                     {
-                        .text_color = color
+                        .text_color = color,
+                        .group_id = GroupId::diagnostic_orphan_message
                     }
                 );
             } else {
@@ -2070,7 +2128,8 @@ namespace dark::internal {
                     ruler_container.width, ruler_container.y,
                     config.line_normal.turn_up,
                     {
-                        .text_color = color
+                        .text_color = color,
+                        .group_id = GroupId::diagnostic_orphan_message
                     }
                 );
             }
@@ -2079,7 +2138,8 @@ namespace dark::internal {
                 ruler_container.width + 1, box.y + mid_point,
                 config.box_normal.horizonal,
                 {
-                    .text_color = color
+                    .text_color = color,
+                    .group_id = GroupId::diagnostic_orphan_message
                 }
             );
 
@@ -2089,7 +2149,8 @@ namespace dark::internal {
                 box.width,
                 box.height,
                 {
-                    .text_color = color
+                    .text_color = color,
+                    .group_id = GroupId::diagnostic_orphan_message
                 },
                 config.box_normal,
                 config.box_bold
@@ -2099,7 +2160,8 @@ namespace dark::internal {
                 ruler_container.width + 2, box.y + mid_point,
                 config.box_normal.left_connector,
                 {
-                    .text_color = color
+                    .text_color = color,
+                    .group_id = GroupId::diagnostic_orphan_message
                 }
             );
 
@@ -2110,7 +2172,8 @@ namespace dark::internal {
                 box.y,
                 {
                     .text_color = color,
-                    .bold = true
+                    .bold = true,
+                    .group_id = GroupId::diagnostic_orphan_message
                 }
             );
 
@@ -2124,13 +2187,23 @@ namespace dark::internal {
 
         return container;
     }
+
+    static inline auto render_path(
+        term::Canvas& canvas,
+        point_container_t const& points,
+        DiagnosticRenderConfig const& config
+    ) noexcept -> void {
+        (void)canvas;
+        (void)points;
+        (void)config;
+    }
 } // namespace dark::internal
 
 namespace dark {
     static inline auto render_diagnostic(
         Terminal& term,
         Diagnostic& diag,
-        DiagnosticRenderConfig config = {}
+        DiagnosticRenderConfig const& config = {}
     ) -> void {
         using namespace internal;
 
@@ -2194,6 +2267,8 @@ namespace dark {
             content_container,
             config
         );
+
+        render_path(canvas, points, config);
 
         canvas.render(term);
     }
