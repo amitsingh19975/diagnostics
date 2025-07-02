@@ -205,25 +205,18 @@ namespace dark::term {
                 .left = "<"
             };
             static constexpr auto basic = ArrowCharSet {
-                .up = "↑",
-                .right = "→",
-                .down = "↓",
-                .left = "←"
+                .up = "△",
+                .right = "▷",
+                .down = "▽",
+                .left = "◁"
             };
 
             static constexpr auto basic_bold = ArrowCharSet {
-                .up = "⬆",
-                .right = "\u{27A1}",
-                .down = "⬇",
-                .left = "⬅"
+                .up = "▲",
+                .right = "▶",
+                .down = "▼",
+                .left = "◀"
             };
-
-            static constexpr auto doubled = ArrowCharSet {
-                .up = "⇑",
-                .right = "⇒",
-                .down = "⇓",
-                .left = "⇐"
-            }; 
         } // namespace arrow
     } // namespace char_set
 
