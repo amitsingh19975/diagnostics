@@ -21,14 +21,14 @@ namespace dark::term {
         std::string_view underline_marker{};
 
         constexpr auto to_style(TextStyle parent_style) const noexcept -> Style {
-            return {
-                .text_color = text_color.value_or(parent_style.text_color),
-                .bg_color = bg_color.value_or(parent_style.bg_color),
-                .bold = bold.value_or(parent_style.bold),
-                .dim = dim.value_or(parent_style.dim),
-                .strike = strike.value_or(parent_style.strike),
-                .italic = italic.value_or(parent_style.italic)
-            };
+            auto style = parent_style.to_style();
+            style.text_color = text_color.value_or(parent_style.text_color);
+            style.bg_color = bg_color.value_or(parent_style.bg_color);
+            style.bold = bold.value_or(parent_style.bold);
+            style.dim = dim.value_or(parent_style.dim);
+            style.strike = strike.value_or(parent_style.strike);
+            style.italic = italic.value_or(parent_style.italic);
+            return style;
         }
 
         constexpr auto operator==(SpanStyle const&) const noexcept -> bool = default;
