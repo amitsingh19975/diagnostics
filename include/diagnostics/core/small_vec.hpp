@@ -51,8 +51,8 @@ namespace dark::core {
         }
         SmallVec(SmallVec&& other) noexcept
             : m_alloc(other.m_alloc)
-            , m_size(std::exchange(other.m_size, 0))
         {
+            m_size = other.m_size;
             if (other.is_small()) {
                 auto lhs = data();
                 auto rhs = other.data();
@@ -61,6 +61,7 @@ namespace dark::core {
                 m_data.dyn = std::exchange(other.m_data.dyn, nullptr); 
             }
             m_capacity = std::exchange(other.m_capacity, 0);
+            other.m_size = 0;
         }
         SmallVec& operator=(SmallVec const& other) {
             if (this == &other) return *this;
@@ -298,24 +299,18 @@ namespace dark::core {
             }
         }
 
-        auto resize(size_type n) {
-            if (n == size()) return;
-
-            reserve(n);
-            m_size = n;
-
-            for (auto it = begin() + n; it != end(); ++it) {
-                it->~T();
-            }
-        }
-
-        auto resize(size_type n, T const& def) {
-            auto old_size = size();
-            resize(n);
-            if (old_size < n) {
-                for (auto it = begin() + old_size; it != end(); ++it) {
-                    *it = def;
+        auto resize(size_type n, T const& def = {}) {
+            if (n < m_size) {
+                for (auto it = begin() + n; it != end(); ++it) {
+                    it->~T();
                 }
+                m_size = n;
+            } else if (n > m_size) {
+                reserve(n);
+                for (auto it = begin() + m_size; it != begin() + n; ++it) {
+                    new (it) T(def);
+                }
+                m_size = n;
             }
         }
 
