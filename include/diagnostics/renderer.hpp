@@ -40,8 +40,8 @@ namespace dark {
         term::BoxCharSet box_bold{ term::char_set::box::rounded_bold };
         term::LineCharSet line_normal{ term::char_set::line::rounded };
         term::LineCharSet line_bold{ term::char_set::line::rounded_bold };
-        term::ArrowCharSet array_normal{ term::char_set::arrow::basic };
-        term::ArrowCharSet array_bold{ term::char_set::arrow::basic_bold };
+        term::ArrowCharSet arrow_normal{ term::char_set::arrow::basic };
+        term::ArrowCharSet arrow_bold{ term::char_set::arrow::basic_bold };
         std::string_view dotted_vertical{ term::char_set::line::dotted.vertical };
         std::string_view dotted_horizontal{ term::char_set::line::dotted.horizonal };
         std::string_view bullet_point = "●";
@@ -1768,7 +1768,7 @@ namespace dark::internal {
     }
 
     // (marker position, message position)
-    using point_container_t = core::SmallVec<std::tuple<term::Point, term::BoundingBox, Color>>;
+    using point_container_t = core::SmallVec<std::tuple<term::Point, term::BoundingBox, term::Style>>;
 
     static inline auto render_span_messages(
         term::Canvas& canvas,
@@ -1992,6 +1992,7 @@ namespace dark::internal {
             }
 
             auto color = diagnostic_level_to_color(std::span(config.level_to_color), dominant_level);
+    
             auto content_height = (y - container.y - 1);
             auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
             auto box = term::BoundingBox {
@@ -2016,7 +2017,10 @@ namespace dark::internal {
                 config.box_bold
             );
 
-            points.push_back({ span_point, box, color });
+            points.push_back({ span_point, box, term::Style {
+                .text_color = color,
+                .z_index = static_cast<int>(dominant_level)
+            } });
         }
 
         while (ruler_container.y < container.y) {
@@ -2190,12 +2194,67 @@ namespace dark::internal {
 
     static inline auto render_path(
         term::Canvas& canvas,
-        point_container_t const& points,
+        point_container_t& points,
         DiagnosticRenderConfig const& config
     ) noexcept -> void {
+        if (points.empty()) return;
         (void)canvas;
-        (void)points;
         (void)config;
+        // The first pass: render the simple/straight paths.
+        {
+            // Simple paths:
+            //   1. No intersection
+            //   2. Marker and message lies in a single line, no turns.
+
+            // if any message cross the this x-coordinate, it is guaranteed to intersect.
+            // This constraint is guaranteed by the construction.
+            auto max_x_position = std::get<0>(points[0]).x + 1;
+            for (auto& [marker_pt, message_box, style]: points) {
+                if (marker_pt == term::Point(0, 0)) continue;
+                auto x_min = std::min(message_box.x, max_x_position);
+                auto x_max = std::min(message_box.bottom_right().first, max_x_position);
+                if (x_max - x_min == 0) continue;
+                if (!(marker_pt.x >= x_min && marker_pt.x < x_max)) continue;
+
+                auto arrow_pt = term::Point(marker_pt.x, marker_pt.y + 1);
+                auto box_pt = term::Point(marker_pt.x, message_box.y);
+
+                // render connector
+                {
+                    canvas.draw_pixel(
+                        box_pt.x, box_pt.y,
+                        config.box_normal.top_connector,
+                        style
+                    );
+                }
+
+                // render arrow
+                {
+                    canvas.draw_pixel(
+                        arrow_pt.x, arrow_pt.y,
+                        config.arrow_bold.up,
+                        style
+                    );
+                }
+
+                // render straight line
+                {
+                    canvas.draw_line(
+                        box_pt.x, box_pt.y - 1,
+                        arrow_pt.x, arrow_pt.y + 1,
+                        style,
+                        /*top_bias=*/false,
+                        config.line_normal,
+                        config.line_bold
+                    );
+                }
+
+                marker_pt = {0, 0};
+                max_x_position = std::min(x_min + 1, max_x_position);
+            }
+        }
+
+        // The last pass: find the complex paths and then render.
     }
 } // namespace dark::internal
 
