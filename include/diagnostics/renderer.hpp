@@ -923,10 +923,7 @@ namespace dark::internal {
                     ++number_of_non_marker_lines;
                 }
 
-                if (
-                    number_of_non_marker_lines >= config.max_non_marker_lines ||
-                    l >= lines.size()
-                ) {
+                if (number_of_non_marker_lines >= config.max_non_marker_lines) {
                     ruler_container = render_ruler(
                         canvas,
                         ruler_container,
@@ -937,7 +934,7 @@ namespace dark::internal {
                     );
                     canvas.draw_text(
                         std::format("... skipped {} lines ...", number_of_non_marker_lines),
-                        container.x,
+                        container.x + 4,
                         container.y,
                         { .dim = true, .italic = true, .group_id = GroupId::diagnostic_source }
                     );
@@ -1912,6 +1909,7 @@ namespace dark::internal {
                 auto tmp_style = style;
                 tmp_style.break_whitespace = false;
                 // shift only if we're on the upper half of the container.
+
                 while (x_pos > container_center_x) {
                     auto box = canvas.measure_text(
                         message,
@@ -2023,13 +2021,13 @@ namespace dark::internal {
             }
 
             auto color = diagnostic_level_to_color(std::span(config.level_to_color), dominant_level);
-    
+
             auto content_height = (y - container.y - 1);
             auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
             auto box = term::BoundingBox {
                 .x = x_pos,
                 .y = container.y,
-                .width = std::min(content_width, container.bottom_right().first - x_pos),
+                .width = std::min(std::max(content_width, static_cast<unsigned>(to_string(dominant_level).size()) + 5), container.bottom_right().first - x_pos),
                 .height = total_height - 1
             };
             container.y = y + 1;
