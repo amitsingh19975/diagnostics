@@ -1235,6 +1235,25 @@ namespace dark::internal {
                                     rel_pos = marker_rel_pos++;
                                 }
 
+                                auto max_pt = term::Point(
+                                    token_x_pos,
+                                    container.y
+                                );
+
+                                for (auto const& m: token.markers) {
+                                    DiagnosticLevel d_level;
+                                    if (m.kind == MarkerKind::Primary) {
+                                        d_level = diag.level;
+                                    } else {
+                                        auto a_index = m.annotation_index;
+                                        d_level = as.spans[a_index].level;
+                                    }
+                                    [[maybe_unused]] auto [freq, rel_y_pos] = marker_freq[static_cast<std::size_t>(d_level)];
+
+                                    max_pt.x = std::max(token_x_pos + m.span.start(), max_pt.x);
+                                    max_pt.y = std::max(container.y + 1 + rel_y_pos, max_pt.y);
+                                }
+
                                 // 2. store the span and render marker
                                 for (auto const& m: token.markers) {
                                     DiagnosticLevel d_level;
@@ -1250,7 +1269,7 @@ namespace dark::internal {
                                         container.y + 1u + rel_y_pos
                                     );
                                     if (m.is_start && m.kind != MarkerKind::Primary) {
-                                        auto& marker_to_message_item = marker_to_message[pt];
+                                        auto& marker_to_message_item = marker_to_message[max_pt];
                                         if (as.spans[m.annotation_index].message_index != DiagnosticMessageSpanInfo::npos) {
                                             message_bottom_padding = 1;
                                         }
@@ -1787,18 +1806,15 @@ namespace dark::internal {
         point_container_t& points,
         DiagnosticRenderConfig const& config
     ) -> term::BoundingBox {
-        (void)points;
-
         auto const container_center_x = container.top_left().first + container.width / 2;
         auto const max_cols = canvas.cols();
 
         using coord_t = std::tuple<
-                term::Point /*span coord*/,
                 std::size_t /*message index*/,
                 std::array<bool, diagnostic_level_elements_count>
             >;
         std::map<
-            dsize_t /*x coord*/,
+            std::pair<unsigned, unsigned> /*marker coord*/,
             std::pair<
                 core::SmallVec<coord_t, 2>,
                 term::Point /*message coord*/
@@ -1812,22 +1828,22 @@ namespace dark::internal {
                 auto index = tmp.message_index;
                 if (index == DiagnosticMessageSpanInfo::npos) continue;
 
-                auto& [span_info, coord] = message_to_span[pt.x];
+                auto& [span_info, coord] = message_to_span[pt.to_pair()];
                 coord = pt;
                 // find message with same index
-                auto it = std::find_if(span_info.begin(), span_info.end(), [index](auto const& l) {
-                    return index == std::get<1>(l);
+                auto it = std::find_if(span_info.begin(), span_info.end(), [index](coord_t const& l) {
+                    return index == std::get<0>(l);
                 });
 
                 // if message with same index found, mark its diagnostic level.
                 // This way we render single message, but all diagnostic indicator at the end.
                 if (it != span_info.end()) {
-                    auto& lvls = std::get<2>(*it);
+                    auto& lvls = std::get<1>(*it);
                     lvls[static_cast<std::size_t>(tmp.level)] = true;
                 } else {
                     // if message not found, insert a new entry.
-                    auto res = coord_t{ pt, index, {} };
-                    std::get<2>(res)[static_cast<std::size_t>(tmp.level)] = true;
+                    auto res = coord_t{ index, {} };
+                    std::get<1>(res)[static_cast<std::size_t>(tmp.level)] = true;
                     span_info.push_back(std::move(res));
                 }
             }
@@ -1842,7 +1858,8 @@ namespace dark::internal {
 
         // Since we're using ordered map, we iterate in reverse if we render from back to start.
         for (auto it = message_to_span.rbegin(); it != message_to_span.rend(); ++it) {
-            auto x_pos = std::min(it->first, last_x_pos);
+            auto span_point = term::Point(it->first.first, it->first.second);
+            auto x_pos = std::min(span_point.x, last_x_pos);
             auto& info = it->second;
             auto& [span_info, pt] = info;
 
@@ -1856,7 +1873,8 @@ namespace dark::internal {
             auto style = term::TextStyle {
                 .word_wrap = true,
                 .break_whitespace = true,
-                .max_width = character_limit
+                .max_width = character_limit,
+                .padding = term::PaddingValues(0, 2, 0, 0)
             };
 
             static constexpr auto shift_by = 2u;
@@ -1866,10 +1884,10 @@ namespace dark::internal {
             // message (avoids unreadable texts)
             for (auto const& el: span_info) {
                 if (x_pos <= container_center_x) break;
-                auto index = std::get<1>(el);
+                auto index = std::get<0>(el);
                 auto const& message = as.messages[index];
                 auto prefix_len = std::size_t{};
-                auto lvls = std::get<2>(el);
+                auto lvls = std::get<1>(el);
                 auto diagnostic_counts = std::size_t{};
                 // find number of diagnostics and max diagnostic name size
                 for (auto l = 0ul; l < lvls.size(); ++l) {
@@ -1891,13 +1909,15 @@ namespace dark::internal {
                     x_pos += core::utf8::calculate_size(bp);
                 }
 
+                auto tmp_style = style;
+                tmp_style.break_whitespace = false;
                 // shift only if we're on the upper half of the container.
                 while (x_pos > container_center_x) {
                     auto box = canvas.measure_text(
                         message,
                         x_pos,
                         container.y,
-                        style
+                        tmp_style
                     );
 
                     // calculate the upper end of the x-coordinate
@@ -1906,7 +1926,7 @@ namespace dark::internal {
                     auto pos = box.bottom_right().first + 4 + prefix_len + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
 
                     // If we maximized the max characters, then we cannot do anything so we break.
-                    if (style.max_width <= box.width && box.width != 0) break;
+                    if (style.max_width <= box.width + 2 && box.width != 0) break;
 
                     bool should_shift = pos >= container.bottom_right().first;
                     if (box.height > 2 || box.width == 0) should_shift = true;
@@ -1928,12 +1948,7 @@ namespace dark::internal {
             // Diagnostic level that will be used for rendering boxes and paths.
             auto dominant_level = DiagnosticLevel::Help;
 
-            // marker position that has biggest y-coordinate.
-            auto span_point = std::get<0>(span_info[0]);
-
-            for (auto const& [spt, index, lvls]: span_info) {
-                span_point.y = std::max(spt.y, span_point.y);
-
+            for (auto const& [index, lvls]: span_info) {
                 auto const& message = as.messages[index];
 
                 auto diagnostic_counts = std::size_t{};
@@ -2002,7 +2017,7 @@ namespace dark::internal {
 
                 // increase the y-coordinate by the text container height.
                 y += text_container.height;
-                auto tmp_width = text_container.width + /*padding + border*/3;
+                auto tmp_width = text_container.width + /*border*/1;
                 if (should_show_bullet_points) tmp_width += 1;
                 content_width = std::min(std::max(content_width, tmp_width + padding), container.width);
             }
