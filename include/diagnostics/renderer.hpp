@@ -56,8 +56,9 @@ namespace dark {
 namespace dark::internal {
     struct GroupId {
         static constexpr unsigned diagnostic_message = 1;
-        static constexpr unsigned diagnostic_ruler = 2;
-        static constexpr unsigned diagnostic_annotation_base_offset = 3;
+        static constexpr unsigned diagnostic_source = 2;
+        static constexpr unsigned diagnostic_ruler = 3;
+        static constexpr unsigned diagnostic_annotation_base_offset = 4;
     };
 
     template <core::IsFormattable T>
@@ -914,7 +915,7 @@ namespace dark::internal {
                         std::format("... skipped {} lines ...", number_of_non_marker_lines),
                         container.x,
                         y,
-                        { .dim = true, .italic = true }
+                        { .dim = true, .italic = true, .group_id = GroupId::diagnostic_source }
                     );
                     y++;
                     continue;
@@ -1084,6 +1085,8 @@ namespace dark::internal {
                                         canvas.draw_pixel(x, y, ".", tmp_style);
                                     }
                                 }
+
+                                style.group_id = GroupId::diagnostic_source;
 
                                 auto body = [&x, &y, &canvas, style, tab_indent](std::string_view txt) {
                                     if (txt == "\t") {
@@ -1284,6 +1287,7 @@ namespace dark::internal {
                                         if (style.text_color == Color::Default) {
                                             style.text_color = color;
                                         }
+                                        style.group_id = GroupId::diagnostic_source;
                                         for (auto k = 0ul; k < iter; ++k, ++tx) {
                                             canvas.draw_pixel(
                                                 tx,
@@ -1891,10 +1895,13 @@ namespace dark::internal {
                 auto x = x_pos + 2;
                 auto bp = config.bullet_point;
                 if (should_show_bullet_points) {
-                    canvas.draw_pixel(x, y, bp, {
-                        .text_color = color
+                    canvas.draw_pixel(x, y, bp, term::Style {
+                        .text_color = color,
+                        .group_id = GroupId::diagnostic_message
                     });
                 }
+
+                style.group_id = GroupId::diagnostic_message;
 
                 auto padding = static_cast<dsize_t>(should_show_bullet_points);
                 [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
@@ -1927,7 +1934,8 @@ namespace dark::internal {
                 box.height,
                 {
                     .text_color = color,
-                    .z_index = static_cast<int>(dominant_level)
+                    .group_id = GroupId::diagnostic_message,
+                    .z_index = static_cast<int>(dominant_level),
                 },
                 config.box_normal,
                 config.box_bold
