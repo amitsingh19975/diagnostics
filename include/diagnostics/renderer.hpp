@@ -1761,7 +1761,7 @@ namespace dark::internal {
     }
 
     // (marker position, message position)
-    using point_container_t = core::SmallVec<std::tuple<term::Point, term::Point, Color>>;
+    using point_container_t = core::SmallVec<std::tuple<term::Point, term::BoundingBox, Color>>;
 
     static inline auto render_span_messages(
         term::Canvas& canvas,
@@ -1813,13 +1813,13 @@ namespace dark::internal {
         std::size_t last_x_pos{max_cols};
 
         for (auto it = message_to_span.rbegin(); it != message_to_span.rend(); ++it) {
-            auto x_pos = it->first + 2;
+            auto x_pos = it->first;
             auto& info = it->second;
             auto& [span_info, pt] = info;
 
             if (last_x_pos == x_pos) {
                 x_pos = std::max(
-                    container.top_left().first, x_pos - 2
+                    container.top_left().first, x_pos
                 );
             }
             last_x_pos = x_pos;
@@ -1834,6 +1834,15 @@ namespace dark::internal {
                 if (x_pos <= container_center_x) break;
                 auto index = std::get<1>(el);
                 auto const& message = as.messages[index];
+                auto prefix_len = std::size_t{};
+                auto lvls = std::get<2>(el);
+                for (auto l = 0ul; l < lvls.size(); ++l) {
+                    if (lvls[l]) {
+                        auto level = static_cast<DiagnosticLevel>(l);
+                        prefix_len = std::max(to_string(level).size(), prefix_len);
+                    }
+                }
+
                 while (x_pos > container_center_x) {
                     auto box = canvas.measure_text(
                         message.first,
@@ -1841,7 +1850,7 @@ namespace dark::internal {
                         container.y,
                         style
                     );
-                    auto pos = box.bottom_right().first + 4;
+                    auto pos = box.bottom_right().first + 4 + prefix_len + 2;
 
                     if (box.height > 2 || (box.width > 40 && box.height > 1) || pos >= container.bottom_right().first) {
                         x_pos -= shift_by;
@@ -1858,11 +1867,11 @@ namespace dark::internal {
             auto dominant_level = DiagnosticLevel::Help;
 
             bool should_show_bullet_points = span_info.size() > 1;
+            auto span_point = std::get<0>(span_info[0]);
             for (auto const& [spt, index, lvls]: span_info) {
-                (void)spt;
+                span_point.y = std::max(spt.y, span_point.y);
+
                 auto const& message = as.messages[index].first;
-                auto tmp_as = AnnotatedString::builder()
-                    .push(message);
 
                 auto diagnostic_counts = std::size_t{};
                 auto current_level = DiagnosticLevel::Help;
@@ -1875,26 +1884,37 @@ namespace dark::internal {
                     }
                 }
 
-                if (diagnostic_counts > 1) {
-                    (void)tmp_as.push(" ");
-                    for (auto l = 0ul; l < lvls.size(); ++l) {
-                        if (lvls[l]) {
-                            auto level = static_cast<DiagnosticLevel>(l);
-                            (void)tmp_as.push(
-                                config.square,
-                                {
-                                    .text_color = diagnostic_level_to_color(level)
-                                }
-                            );
-                        }
-                    }
-                }
+                auto tmp_as = AnnotatedString::builder();
 
                 auto color = diagnostic_level_to_color(current_level);
 
-                auto x = x_pos + 2;
+                (void)tmp_as
+                    .with_style({ .text_color = color, .dim = true })
+                        .push("[")
+                        .push(to_string(current_level))
+                        .push("] ");
+
+                (void)tmp_as.push(message);
+
+                if (diagnostic_counts > 1) {
+                    (void)tmp_as.push(" ");
+                    for (auto l = diagnostic_level_elements_count; l > 0; --l) {
+                        auto j = l - 1;
+                        if (!lvls[j]) continue;
+                        auto level = static_cast<DiagnosticLevel>(j);
+                        (void)tmp_as.push(
+                            config.square,
+                            {
+                                .text_color = diagnostic_level_to_color(level)
+                            }
+                        );
+                    }
+                }
+
+                auto x = x_pos + 1;
                 auto bp = config.bullet_point;
                 if (should_show_bullet_points) {
+                    x += 1;
                     canvas.draw_pixel(x, y, bp, term::Style {
                         .text_color = color,
                         .group_id = GroupId::diagnostic_message
@@ -1911,13 +1931,14 @@ namespace dark::internal {
                     style
                 );
                 y += text_container.height;
-                content_width = std::min(std::max(content_width, text_container.width + 6 + padding), container.width);
+                auto tmp_width = text_container.width + 3;
+                if (should_show_bullet_points) tmp_width += 1;
+                content_width = std::min(std::max(content_width, tmp_width + padding), container.width);
             }
 
             auto color = diagnostic_level_to_color(dominant_level);
             auto content_height = (y - container.y - 1);
             auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
-            auto mid_point = total_height / 2;
             auto box = term::BoundingBox {
                 .x = x_pos,
                 .y = container.y,
@@ -1925,7 +1946,6 @@ namespace dark::internal {
                 .height = total_height - 1
             };
             container.y = y + 1;
-            (void)mid_point;
 
             canvas.draw_box(
                 box.x,
@@ -1940,6 +1960,8 @@ namespace dark::internal {
                 config.box_normal,
                 config.box_bold
             );
+
+            points.push_back({ span_point, box, color });
         }
 
         while (ruler_container.y < container.y) {
