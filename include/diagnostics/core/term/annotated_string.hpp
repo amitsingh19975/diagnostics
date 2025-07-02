@@ -3,10 +3,8 @@
 
 #include "../small_vec.hpp"
 #include "../cow_string.hpp"
-#include "../utf8.hpp"
 #include "style.hpp"
 #include <cctype>
-#include <cstdint>
 #include <format>
 #include "../../forward.hpp"
 
@@ -29,7 +27,7 @@ namespace dark::term {
                 .bold = bold.value_or(parent_style.bold),
                 .dim = dim.value_or(parent_style.dim),
                 .strike = strike.value_or(parent_style.strike),
-                .italic = strike.value_or(parent_style.italic)
+                .italic = italic.value_or(parent_style.italic)
             };
         }
 
