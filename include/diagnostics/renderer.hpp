@@ -298,11 +298,11 @@ namespace dark::internal {
             })
             .value_or(std::string());
 
-        canvas.draw_text(num, container.x, y, { .text_color = color, .bold = true });
+        canvas.draw_text(num, container.x, y, { .text_color = color, .bold = true, .group_id = GroupId::diagnostic_ruler });
         if (line.empty()) {
             line = "|";
             if (!line_number.has_value()) {
-                canvas.draw_text("...", 1, y, { .text_color = color, .bold = true });
+                canvas.draw_text("...", 1, y, { .text_color = color, .bold = true, .group_id = GroupId::diagnostic_ruler });
             }
         }
         canvas.draw_pixel(width, y, line, { .text_color = color, .group_id = GroupId::diagnostic_ruler });
@@ -873,7 +873,6 @@ namespace dark::internal {
         auto& lines = diag.location.source.lines;
         fix_newlines(lines);
         auto x = container.x;
-        auto y = container.y;
 
         auto skip_check_for = 0ul;
         // Point -> annotation index
@@ -888,9 +887,30 @@ namespace dark::internal {
             return false;
         };
 
+        auto draw_ruler_helper = [&config, &canvas](
+            term::BoundingBox& container,
+            unsigned y,
+            std::optional<unsigned> line_number = {}
+        ) {
+            if (container.y >= y) return;
+            container.y += 1;
+            while (container.y < y) {
+                render_ruler(
+                    canvas,
+                    container,
+                    line_number,
+                    "",
+                    config.dotted_vertical,
+                    config.ruler_color
+                );
+                container.y++;
+            }
+        };
+
+        ruler_container.y = container.y;
+
         for (auto l = 0ul; l < lines.size();) {
             auto& line = lines[l];
-            ruler_container.y = y;
 
             // Adds ellipsis if consecutive non-marked lines are present, and it exceeds `max_non_marker_lines` from config
             if (!has_any_marker(line) && skip_check_for == 0) {
@@ -907,7 +927,7 @@ namespace dark::internal {
                     number_of_non_marker_lines >= config.max_non_marker_lines ||
                     l >= lines.size()
                 ) {
-                    render_ruler(
+                    ruler_container = render_ruler(
                         canvas,
                         ruler_container,
                         {},
@@ -918,10 +938,10 @@ namespace dark::internal {
                     canvas.draw_text(
                         std::format("... skipped {} lines ...", number_of_non_marker_lines),
                         container.x,
-                        y,
+                        container.y,
                         { .dim = true, .italic = true, .group_id = GroupId::diagnostic_source }
                     );
-                    y++;
+                    container.y++;
                     continue;
                 }
 
@@ -931,6 +951,7 @@ namespace dark::internal {
                 skip_check_for = std::max(skip_check_for, 1ul) - 1;
             }
 
+            draw_ruler_helper(ruler_container, container.y);
             render_ruler(
                 canvas,
                 ruler_container,
@@ -991,23 +1012,19 @@ namespace dark::internal {
             unsigned failed_count{0};
             // use this container as stack so we can insert new tokens while iterating
             std::reverse(normalized_tokens.begin(), normalized_tokens.end());
-            unsigned old_y = y;
             bool is_first_line{true};
             while (!normalized_tokens.empty()) {
                 auto line_of_tokens = std::move(normalized_tokens.back());
                 normalized_tokens.pop_back();
 
-                while (old_y++ < y) {
-                    ruler_container.y = old_y;
-                    render_ruler(
-                        canvas,
-                        ruler_container,
-                        line_of_tokens.line_number == 0 ? std::optional<dsize_t>{} : std::optional<dsize_t>{line_of_tokens.line_number},
-                        "",
-                        config.dotted_vertical,
-                        config.ruler_color
-                    );
-                }
+                render_ruler(
+                    canvas,
+                    ruler_container,
+                    line_of_tokens.line_number == 0 ? std::optional<dsize_t>{} : std::optional<dsize_t>{line_of_tokens.line_number},
+                    "",
+                    config.dotted_vertical,
+                    config.ruler_color
+                );
 
                 bool success = false;
                 do {
@@ -1056,6 +1073,7 @@ namespace dark::internal {
                         );
                         x += static_cast<unsigned>(start_padding * is_first_line);
                         auto bottom_padding = 0u;
+                        unsigned message_bottom_padding{0};
                         for (auto const& token: line_of_tokens.tokens) {
                             auto token_x_pos = x;
 
@@ -1092,7 +1110,7 @@ namespace dark::internal {
 
                                 style.group_id = GroupId::diagnostic_source;
 
-                                auto body = [&x, &y, &canvas, style, tab_indent](std::string_view txt) {
+                                auto body = [&x, y, &canvas, style, tab_indent](std::string_view txt) {
                                     if (txt == "\t") {
                                         canvas.draw_pixel(
                                             x, y,
@@ -1145,7 +1163,7 @@ namespace dark::internal {
                             };
 
                             // Render before marker
-                            x = render_text(0, marker_start, x, y, token.to_style());
+                            x = render_text(0, marker_start, x, container.y, token.to_style());
 
                             auto marker_end = marker_start;
                             if (!token.markers.empty()) {
@@ -1229,10 +1247,13 @@ namespace dark::internal {
                                     auto [freq, rel_y_pos] = marker_freq[static_cast<std::size_t>(d_level)];
                                     auto pt = term::Point(
                                         token_x_pos + m.span.start(),
-                                        y + 1u + rel_y_pos
+                                        container.y + 1u + rel_y_pos
                                     );
                                     if (m.is_start && m.kind != MarkerKind::Primary) {
                                         auto& marker_to_message_item = marker_to_message[pt];
+                                        if (as.spans[m.annotation_index].message_index != DiagnosticMessageSpanInfo::npos) {
+                                            message_bottom_padding = 1;
+                                        }
                                         marker_to_message_item.push_back(m);
                                     }
 
@@ -1295,7 +1316,7 @@ namespace dark::internal {
                                         for (auto k = 0ul; k < iter; ++k, ++tx) {
                                             canvas.draw_pixel(
                                                 tx,
-                                                y,
+                                                container.y,
                                                 tmp_text,
                                                 style
                                             );
@@ -1329,22 +1350,11 @@ namespace dark::internal {
                             }
 
                             // Render after the marker
-                            x = render_text(marker_end, text.size(), x, y, token.to_style());
+                            x = render_text(marker_end, text.size(), x, container.y, token.to_style());
                         }
-                        ++bottom_padding;
-                        for (auto i = 0u; i < bottom_padding; ++i) {
-                            auto tmp = ruler_container;
-                            tmp.y++;
-                            render_ruler(
-                                canvas,
-                                tmp,
-                                {},
-                                "",
-                                config.dotted_vertical,
-                                config.ruler_color
-                            );
-                        }
-                        y += bottom_padding;
+                        bottom_padding += message_bottom_padding;
+                        container.y += bottom_padding;
+                        draw_ruler_helper(ruler_container, container.y + 1);
                         break;
                     }
 
@@ -1750,22 +1760,23 @@ namespace dark::internal {
                 } while (!success);
 
                 if (!normalized_tokens.empty()) {
-                    ++y;
+                    ++container.y;
                 }
                 is_first_line = false;
             }
 
-            if (l + 1 < lines.size()) {
-                ++y;
-            }
+            ++container.y;
         }
 
-        container.y = y;
         return container;
     }
 
     // (marker position, message position)
-    using point_container_t = core::SmallVec<std::tuple<term::Point, term::BoundingBox, term::Style>>;
+    using point_container_t = core::SmallVec<std::tuple<
+        term::Point /*Marker Position*/,
+        term::BoundingBox /*Message Bounding Box*/,
+        term::Style /*Marker style*/
+    >>;
 
     static inline auto render_span_messages(
         term::Canvas& canvas,
@@ -1888,16 +1899,17 @@ namespace dark::internal {
                         container.y,
                         style
                     );
+
                     // calculate the upper end of the x-coordinate
                     // x = text end x position + padding for box + diagnostic name + padding after
                     //     diagnostic name + diagnostic indicator + place for bullet point.
                     auto pos = box.bottom_right().first + 4 + prefix_len + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
 
                     // If we maximized the max characters, then we cannot do anything so we break.
-                    if (style.max_width <= box.width) break;
+                    if (style.max_width <= box.width && box.width != 0) break;
 
                     bool should_shift = pos >= container.bottom_right().first;
-                    if (box.height > 2) should_shift = true;
+                    if (box.height > 2 || box.width == 0) should_shift = true;
 
                     if (should_shift) {
                         x_pos -= shift_by;
@@ -1906,6 +1918,7 @@ namespace dark::internal {
                     }
                 }
             }
+
 
             last_x_pos = x_pos;
 
@@ -2030,7 +2043,7 @@ namespace dark::internal {
                     {
                         .text_color = box_style.text_color,
                         .group_id = box_style.group_id,
-                        .z_index = box_style.z_index
+                        .z_index = box_style.z_index + 1
                     }
                 );
             }
@@ -2225,6 +2238,7 @@ namespace dark::internal {
             // if any message cross the this x-coordinate, it is guaranteed to intersect.
             // This constraint is guaranteed by the construction.
             auto max_x_position = std::get<0>(points[0]).x + 1;
+            auto rendered_count = std::size_t{};
             for (auto& [marker_pt, message_box, style]: points) {
                 if (marker_pt == term::Point(0, 0)) continue;
                 auto x_min = std::min(message_box.x, max_x_position);
@@ -2235,8 +2249,29 @@ namespace dark::internal {
                 auto arrow_pt = term::Point(marker_pt.x, marker_pt.y + 1);
                 auto box_pt = term::Point(marker_pt.x, message_box.y);
 
+                bool has_intersections{false};
+                for (auto y = arrow_pt.y; y < box_pt.y; ++y) {
+                    auto const& cell = canvas(y, box_pt.x);
+                    if (cell.style.group_id != 0) {
+                        has_intersections = true;
+                        break;
+                    }
+                }
+
+                if (has_intersections) continue;
+
+                // render straight line
+                canvas.draw_line(
+                    box_pt.x, box_pt.y,
+                    arrow_pt.x, arrow_pt.y,
+                    style,
+                    /*top_bias=*/false,
+                    config.line_normal,
+                    config.line_bold
+                );
+
                 // render connector
-                {
+                if (box_pt.x > message_box.x && box_pt.x < message_box.bottom_right().first) {
                     canvas.draw_pixel(
                         box_pt.x, box_pt.y,
                         config.box_normal.top_connector,
@@ -2253,33 +2288,18 @@ namespace dark::internal {
                     );
                 }
 
-                box_pt.y -= 1;
-                arrow_pt.y += 1;
-
-                // render straight line
-                if (box_pt.y > arrow_pt.y) {
-                    canvas.draw_line(
-                        box_pt.x, box_pt.y,
-                        arrow_pt.x, arrow_pt.y,
-                        style,
-                        /*top_bias=*/false,
-                        config.line_normal,
-                        config.line_bold
-                    );
-                } else if (box_pt.y == arrow_pt.y) {
-                    canvas.draw_pixel(
-                        box_pt.x, box_pt.y,
-                        config.line_normal.vertical,
-                        style
-                    );
-                }
-
                 marker_pt = {0, 0};
                 max_x_position = std::min(x_min + 1, max_x_position);
+                ++rendered_count;
             }
+
+            if (points.size() == rendered_count) return;
         }
 
         // The last pass: find the complex paths and then render.
+        {
+            
+        }
     }
 } // namespace dark::internal
 
