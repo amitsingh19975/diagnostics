@@ -124,11 +124,7 @@ namespace dark::internal {
 
     struct NormalizedDiagnosticAnnotations {
         using diagnostic_index_t = std::size_t;
-        core::SmallVec<std::pair<
-            /*message*/term::AnnotatedString,
-            /*min start*/dsize_t
-            >
-        > messages{};
+        core::SmallVec<term::AnnotatedString> messages{};
         core::SmallVec<DiagnosticMessageSpanInfo> spans{};
         std::unordered_map<diagnostic_index_t, DiagnosticSourceLocationTokens> tokens{};
         core::SmallVec<DiagnosticOrphanMessageInfo> orphans{};
@@ -163,7 +159,7 @@ namespace dark::internal {
                 auto const& el = res.messages[m];
                 if (NormalizedDiagnosticAnnotations::compare_annotated_string(
                     annotation.message,
-                    std::get<0>(el)
+                    el
                 )) {
                     message_id = m;
                 }
@@ -171,20 +167,21 @@ namespace dark::internal {
 
             // 2. If not found, insert the current one
             if (message_id == DiagnosticMessageSpanInfo::npos) {
-                message_id = res.messages.size();
-                res.messages.emplace_back(std::move(annotation.message), std::numeric_limits<dsize_t>::max());
+                if (!annotation.message.empty()) {
+                    message_id = res.messages.size();
+                    res.messages.push_back(std::move(annotation.message));
+                }
             }
 
             // 3. Store tokens inside the hashmap
             res.tokens[i] = std::move(annotation.tokens);
             bool has_spans{false};
+            bool inside_source_span{false};
 
             // 4. Store spans with ids and filter out out-of-bound spans
             for (auto span: annotation.spans) {
                 if (!source_span.is_between(span, true)) continue;
-                // 5. store min span start with annotation message.
-                auto& start = std::get<1>(res.messages[message_id]);
-                start = std::min(start, span.start());
+                inside_source_span = true;
 
                 if (span.empty()) {
                     continue;
@@ -200,7 +197,7 @@ namespace dark::internal {
                 });
             }
 
-            if (!has_spans) {
+            if ((!has_spans && inside_source_span) || annotation.spans.empty()) {
                 res.orphans.push_back({ .message_index = message_id, .level = annotation.level });
             }
         }
@@ -685,12 +682,12 @@ namespace dark::internal {
                     el.markers[s].span = l0;
                     lhs.span = l1;
                     lhs.is_start = false;
-                    // TODO: improve this by find the lower bound and insert afte that position.
+                    // TODO: improve this by find the lower bound and insert after that position.
                     el.markers.push_back(lhs);
                     std::stable_sort(el.markers.begin(), el.markers.end(), cmp_op);
                 }
 
-                // split marked and non-markered text
+                // split marked and non-marked text
 
                 // for (auto const& item: el.markers) {
                 //     std::println("[{}, {}, {}], ", item.annotation_index, item.span, item.is_start);
@@ -1802,6 +1799,8 @@ namespace dark::internal {
             for (auto const& m: markers) {
                 auto& tmp = as.spans[m.annotation_index];
                 auto index = tmp.message_index;
+                if (index == DiagnosticMessageSpanInfo::npos) continue;
+
                 auto& [span_info, coord] = message_to_span[pt.x];
                 coord = pt;
                 // find message with same index
@@ -1883,7 +1882,7 @@ namespace dark::internal {
                 // shift only if we're on the upper half of the container.
                 while (x_pos > container_center_x) {
                     auto box = canvas.measure_text(
-                        message.first,
+                        message,
                         x_pos,
                         container.y,
                         style
@@ -1901,7 +1900,7 @@ namespace dark::internal {
 
                     if (should_shift) {
                         x_pos -= shift_by;
-                        shift_by *= 2;
+                        shift_by += 2;
                     } else {
                         break;
                     }
@@ -1920,7 +1919,7 @@ namespace dark::internal {
             for (auto const& [spt, index, lvls]: span_info) {
                 span_point.y = std::max(spt.y, span_point.y);
 
-                auto const& message = as.messages[index].first;
+                auto const& message = as.messages[index];
 
                 auto diagnostic_counts = std::size_t{};
                 auto current_level = DiagnosticLevel::Help;
@@ -2072,7 +2071,7 @@ namespace dark::internal {
                 });
                 auto padding = static_cast<dsize_t>(should_show_bullet_points);
                 [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
-                    std::get<0>(as.messages[as.orphans[i].message_index]),
+                    as.messages[as.orphans[i].message_index],
                     x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
                     y,
                     {
@@ -2198,8 +2197,6 @@ namespace dark::internal {
         DiagnosticRenderConfig const& config
     ) noexcept -> void {
         if (points.empty()) return;
-        (void)canvas;
-        (void)config;
         // The first pass: render the simple/straight paths.
         {
             // Simple paths:
@@ -2237,11 +2234,14 @@ namespace dark::internal {
                     );
                 }
 
+                box_pt.y -= 1;
+                arrow_pt.y += 1;
+
                 // render straight line
-                {
+                if (box_pt.y > arrow_pt.y) {
                     canvas.draw_line(
-                        box_pt.x, box_pt.y - 1,
-                        arrow_pt.x, arrow_pt.y + 1,
+                        box_pt.x, box_pt.y,
+                        arrow_pt.x, arrow_pt.y,
                         style,
                         /*top_bias=*/false,
                         config.line_normal,
