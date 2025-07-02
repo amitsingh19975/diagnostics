@@ -1822,7 +1822,7 @@ namespace dark::internal {
             }
         }
 
-        std::size_t last_x_pos{max_cols};
+        unsigned last_x_pos{static_cast<unsigned>(max_cols)};
 
         auto const character_limit = std::min(
             container.width - 1,
@@ -1831,25 +1831,24 @@ namespace dark::internal {
 
         // Since we're using ordered map, we iterate in reverse if we render from back to start.
         for (auto it = message_to_span.rbegin(); it != message_to_span.rend(); ++it) {
-            auto x_pos = it->first;
+            auto x_pos = std::min(it->first, last_x_pos);
             auto& info = it->second;
             auto& [span_info, pt] = info;
 
             // if messages somehow has same x position, we shift it by 2 places
             // so we have some breathing space for path to pass easily, reducing the intersections.
-            if (last_x_pos == x_pos) {
+            if (last_x_pos <= x_pos) {
                 x_pos = std::max(
-                    container.top_left().first, x_pos - 2
+                    container.top_left().first, last_x_pos - 2
                 );
             }
-            last_x_pos = x_pos;
             auto style = term::TextStyle {
                 .word_wrap = true,
                 .break_whitespace = true,
                 .max_width = character_limit
             };
 
-            auto shift_by = 2u;
+            static constexpr auto shift_by = 2u;
             bool should_show_bullet_points = span_info.size() > 1;
             // Now, try to find appropriate x coordinate of the message
             // so we can reduce the number of line breaks and squeezing the
@@ -1865,10 +1864,12 @@ namespace dark::internal {
                 for (auto l = 0ul; l < lvls.size(); ++l) {
                     if (lvls[l]) {
                         auto level = static_cast<DiagnosticLevel>(l);
-                        prefix_len = std::max(to_string(level).size(), prefix_len);
+                        prefix_len = std::max(to_string(level).size() + /*'[' + ']'*/2, prefix_len);
                         ++diagnostic_counts;
                     }
                 }
+
+                if (diagnostic_counts == 1) prefix_len = 0;
 
                 // take bullet points into account inside the x-coordinate.
                 auto padding = static_cast<dsize_t>(should_show_bullet_points);
@@ -1890,7 +1891,7 @@ namespace dark::internal {
                     // calculate the upper end of the x-coordinate
                     // x = text end x position + padding for box + diagnostic name + padding after
                     //     diagnostic name + diagnostic indicator + place for bullet point.
-                    auto pos = box.bottom_right().first + 4 + prefix_len + 2 + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
+                    auto pos = box.bottom_right().first + 4 + prefix_len + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
 
                     // If we maximized the max characters, then we cannot do anything so we break.
                     if (style.max_width <= box.width) break;
@@ -1900,15 +1901,16 @@ namespace dark::internal {
 
                     if (should_shift) {
                         x_pos -= shift_by;
-                        shift_by += 2;
                     } else {
                         break;
                     }
                 }
             }
 
+            last_x_pos = x_pos;
+
             unsigned content_width{};
-            container.y += 1;
+            container.y += 2;
             auto y = container.y + 1;
             // Diagnostic level that will be used for rendering boxes and paths.
             auto dominant_level = DiagnosticLevel::Help;
@@ -1935,12 +1937,14 @@ namespace dark::internal {
                 auto color = diagnostic_level_to_color(std::span(config.level_to_color), current_level);
 
                 auto tmp_as = AnnotatedString::builder();
-                // Add the Diagnostic prefix the builder.
-                (void)tmp_as
-                    .with_style({ .text_color = color, .dim = true })
-                        .push("[")
-                        .push(to_string(current_level))
-                        .push("] ");
+                if (should_show_bullet_points) {
+                    // Add the Diagnostic prefix the builder.
+                    (void)tmp_as
+                        .with_style({ .text_color = color, .dim = true })
+                            .push("[")
+                            .push(to_string(current_level))
+                            .push("] ");
+                }
 
                 // Add the message.
                 (void)tmp_as.push(message);
@@ -2002,19 +2006,34 @@ namespace dark::internal {
             };
             container.y = y + 1;
 
+            auto box_style = term::Style {
+                .text_color = color,
+                .group_id = GroupId::diagnostic_message,
+                .z_index = static_cast<int>(dominant_level),
+            };
             canvas.draw_box(
                 box.x,
                 box.y,
                 box.width,
                 box.height,
-                {
-                    .text_color = color,
-                    .group_id = GroupId::diagnostic_message,
-                    .z_index = static_cast<int>(dominant_level),
-                },
+                box_style,
                 config.box_normal,
                 config.box_bold
             );
+
+            if (!should_show_bullet_points) {
+                canvas.draw_text(
+                    AnnotatedString::builder()
+                        .push(" ").push(to_string(dominant_level)).push(" ").build(),
+                    box.x + 2,
+                    box.y,
+                    {
+                        .text_color = box_style.text_color,
+                        .group_id = box_style.group_id,
+                        .z_index = box_style.z_index
+                    }
+                );
+            }
 
             points.push_back({ span_point, box, term::Style {
                 .text_color = color,
@@ -2246,6 +2265,12 @@ namespace dark::internal {
                         /*top_bias=*/false,
                         config.line_normal,
                         config.line_bold
+                    );
+                } else if (box_pt.y == arrow_pt.y) {
+                    canvas.draw_pixel(
+                        box_pt.x, box_pt.y,
+                        config.line_normal.vertical,
+                        style
                     );
                 }
 
