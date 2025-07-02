@@ -87,7 +87,7 @@ namespace dark {
         // Absoulte span; starting from the source text
         constexpr auto span() const noexcept -> Span {
             if (empty()) return {};
-            auto span = Span();
+            auto span = tokens[0].span();
 
             for (auto i = 0ul; i < tokens.size(); ++i) {
                 auto token_span = tokens[i].span();
@@ -99,7 +99,7 @@ namespace dark {
 
         constexpr auto rel_span() const noexcept -> Span {
             if (empty()) return {};
-            auto span = Span();
+            auto span = tokens[0].span();
 
             for (auto i = 0ul; i < tokens.size(); ++i) {
                 auto token_span = tokens[i].rel_span(line_start_offset);
@@ -141,7 +141,7 @@ namespace dark {
 
         constexpr auto span() const noexcept -> Span {
             if (empty()) return {};
-            auto span = Span();
+            auto span = lines[0].span();
 
             for (auto i = 0ul; i < lines.size(); ++i) {
                 auto line_span = lines[i].span();
@@ -153,7 +153,7 @@ namespace dark {
 
         constexpr auto rel_span() const noexcept -> Span {
             if (empty()) return {};
-            auto span = Span();
+            auto span = lines[0].span();
 
             for (auto i = 0ul; i < lines.size(); ++i) {
                 auto line_span = lines[i].rel_span();
