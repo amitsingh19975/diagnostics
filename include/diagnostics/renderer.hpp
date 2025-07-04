@@ -15,14 +15,16 @@
 #include "span.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
-#include <map>
 #include <optional>
 #include <print>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace dark {
     struct Markers {
@@ -154,6 +156,7 @@ namespace dark::internal {
         for (auto i = 0ul; i < diag.annotations.size(); ++i) {
             auto annotation = diag.annotations[i];
             auto message_id = DiagnosticMessageSpanInfo::npos;
+
             // 1. Find unique annotation messages
             for (auto m = 0ul; m < res.messages.size(); ++m) {
                 auto const& el = res.messages[m];
@@ -1804,267 +1807,397 @@ namespace dark::internal {
         DiagnosticRenderConfig const& config
     ) -> term::BoundingBox {
         auto const container_center_x = container.top_left().first + container.width / 2;
-        auto const max_cols = canvas.cols();
+        auto const min_x = container.bottom_left().first;
+        auto const max_x = container.bottom_right().first;
 
-        using coord_t = std::tuple<
-                std::size_t /*message index*/,
-                std::array<bool, diagnostic_level_elements_count>
-            >;
-        std::map<
-            std::pair<unsigned, unsigned> /*marker coord*/,
-            std::pair<
-                core::SmallVec<coord_t, 2>,
-                term::Point /*message coord*/
-            >
-        > message_to_span{};
+        // 1. Messages can be grouped if they point to the same span.
+        // 2. Spans can be grouped if they point to the same message.
+        // 3. If a message is shared among different spans:
+        //      case 1: if it's grouped with other messages, it's duplicated.
+        //      case 2: it is not grouped, it's left alone.
+        // 4. If a whole group is shared, single rendered message shared.
+        // 5. If a subset of group is shared, that group is rendered separately.
 
-        // merge those message that have same offset and index
+        struct MessageInfo {
+            using index_t = unsigned;
+            index_t message_index;
+            std::uint8_t level_bit_mask{}; // packed multiple diagnostic levels.
+        };
+
+        struct MessageGroup {
+            core::SmallVec<MessageInfo, 1> messages;
+            core::SmallVec<term::Point, 1> spans;
+            unsigned x_pos{std::numeric_limits<unsigned>::max()};
+        };
+
+        core::SmallVec<MessageGroup> groups;
+
+        using message_t = std::uint32_t;
+
+        struct PackedMessageItem {
+            std::uint16_t index;
+            std::uint16_t level;
+
+            constexpr auto to_int() const noexcept -> std::uint32_t { return std::bit_cast<message_t>(*this); }
+            static constexpr auto from(std::uint32_t v) noexcept -> PackedMessageItem { return std::bit_cast<PackedMessageItem>(v); }
+        };
+
+
+        std::unordered_map<message_t, std::unordered_set<term::Point>> message_marker_sets{};
+
+        auto total_points = std::size_t{};
         for (auto const& [pt, markers]: message_markers) {
             for (auto const& m: markers) {
                 auto& tmp = as.spans[m.annotation_index];
                 auto index = tmp.message_index;
                 if (index == DiagnosticMessageSpanInfo::npos) continue;
-
-                auto& [span_info, coord] = message_to_span[pt.to_pair()];
-                coord = pt;
-                // find message with same index
-                auto it = std::find_if(span_info.begin(), span_info.end(), [index](coord_t const& l) {
-                    return index == std::get<0>(l);
-                });
-
-                // if message with same index found, mark its diagnostic level.
-                // This way we render single message, but all diagnostic indicator at the end.
-                if (it != span_info.end()) {
-                    auto& lvls = std::get<1>(*it);
-                    lvls[static_cast<std::size_t>(tmp.level)] = true;
-                } else {
-                    // if message not found, insert a new entry.
-                    auto res = coord_t{ index, {} };
-                    std::get<1>(res)[static_cast<std::size_t>(tmp.level)] = true;
-                    span_info.push_back(std::move(res));
-                }
+                assert(index <= std::numeric_limits<std::uint16_t>::max());
+                auto item = PackedMessageItem(
+                    static_cast<std::uint16_t>(index),
+                    static_cast<std::uint16_t>(tmp.level)
+                ).to_int();
+                message_marker_sets[item].insert(pt);
+                ++total_points;
             }
         }
 
-        unsigned last_x_pos{static_cast<unsigned>(max_cols)};
+        static constexpr auto bit_masks = []{
+            std::array<std::uint8_t, diagnostic_level_elements_count> res{};
+            res[0] = 1;
+            for (auto i = std::uint8_t{1}; i < diagnostic_level_elements_count; ++i) {
+                res[i] = static_cast<std::uint8_t>(1 << i);
+            }
+            return res;
+        }();
+
+
+        {
+            std::unordered_map<std::size_t /*message index*/, std::uint8_t /*level*/> message_level_map;
+
+            core::SmallVec<std::uint32_t, 0> messages_to_be_removed; 
+            message_level_map.reserve(as.messages.size());
+
+            for (auto sets = 1ul; sets <= total_points;) {
+                auto it = message_marker_sets.begin();
+                message_level_map.clear();
+                messages_to_be_removed.clear();
+                for (; it != message_marker_sets.end(); ++it) {
+                    if (it->second.size() == sets) break;
+                }
+
+                if (it == message_marker_sets.end()) {
+                    ++sets;
+                    continue;
+                }
+
+                auto pi = PackedMessageItem::from(it->first);
+                message_level_map[pi.index] |= bit_masks[pi.level];
+                auto const& markers = it->second;
+                messages_to_be_removed.push_back(it->first);
+                ++it;
+
+                for (; it != message_marker_sets.end(); ++it) {
+                    if (it->second == markers) {
+                        messages_to_be_removed.push_back(it->first);
+                        pi = PackedMessageItem::from(it->first);
+                        message_level_map[pi.index] |= bit_masks[pi.level];
+                    }
+                }
+
+                auto g = MessageGroup{};
+                for (auto [index, ls]: message_level_map) {
+                    g.messages.push_back(MessageInfo{
+                        .message_index = static_cast<MessageInfo::index_t>(index),
+                        .level_bit_mask = ls,
+                    });
+                }
+
+                auto avg_x = unsigned{};
+                auto count = static_cast<unsigned>(markers.size());
+                for (auto m: markers) {
+                    g.spans.push_back(m);
+                    avg_x += m.x;
+                }
+
+                g.x_pos = std::max(avg_x / std::max<unsigned>(1u, count), min_x);
+
+                for (auto p: messages_to_be_removed) {
+                    message_marker_sets.erase(p);
+                }
+
+                groups.push_back(std::move(g));
+            }
+        }
+
+
+        // for (auto const& el: groups) {
+        //     std::print("message: [");
+        //     for (auto const& m: el.messages) {
+        //         std::print("('{}', {:b}, Box({}, {}, {}, {})), ", as.messages[m.message_index].strings[0].first.to_borrowed(), m.level_bit_mask, m.box.x, m.box.y, m.box.width, m.box.height);
+        //     }
+        //     std::println("]");
+        //     std::print("spans: [");
+        //     for (auto const& s: el.spans) {
+        //         std::print("{}, ", s.to_pair());
+        //     }
+        //     std::println("]");
+        //
+        //     std::println("x_pos: {}\n\n", el.x_pos);
+        // }
+
+        // Sort the groups by the largest x position to the lowest.
+        std::sort(groups.begin(), groups.end(), [](MessageGroup const& l, MessageGroup const& r) {
+            return l.x_pos > r.x_pos;
+        });
+
+        {
+            std::unordered_set<unsigned> x_positions;
+
+            for (auto& g: groups) {
+                while (x_positions.contains(g.x_pos)) {
+                    if (g.x_pos == min_x) break;
+                    g.x_pos = std::max(g.x_pos - 2, g.x_pos);
+                }
+
+                x_positions.insert(g.x_pos);
+            }
+        }
 
         auto const character_limit = std::min(
-            container.width - 1,
+            container.width - 6,
             static_cast<unsigned>(config.max_message_characters_per_line)
         );
 
-        // Since we're using ordered map, we iterate in reverse if we render from back to start.
-        for (auto it = message_to_span.rbegin(); it != message_to_span.rend(); ++it) {
-            auto span_point = term::Point(it->first.first, it->first.second);
-            auto x_pos = std::min(span_point.x, last_x_pos);
-            auto& info = it->second;
-            auto& [span_info, pt] = info;
+        static constexpr auto shift_by = 2u;
 
-            // if messages somehow has same x position, we shift it by 2 places
-            // so we have some breathing space for path to pass easily, reducing the intersections.
-            if (last_x_pos <= x_pos) {
-                x_pos = std::max(
-                    container.top_left().first, last_x_pos - 2
-                );
+        auto bit_iterator = [](std::size_t bits, auto&& fn) {
+            while (bits) {
+                auto index = static_cast<std::size_t>(std::countr_zero(bits));
+                fn(index);
+
+                // clear the right most set bit.
+                bits &= bits - 1;
             }
+        };
+
+        for (auto const& g: groups) {
+            auto x_pos = g.x_pos;
+
             auto style = term::TextStyle {
                 .word_wrap = true,
                 .break_whitespace = true,
                 .max_width = character_limit,
-                .padding = term::PaddingValues(0, 2, 0, 0)
+                .padding = term::PaddingValues(0, 2, 0, 2)
             };
 
-            static constexpr auto shift_by = 2u;
-            bool should_show_bullet_points = span_info.size() > 1;
+            bool should_show_bullet_points = g.messages.size() > 1;
+
             // Now, try to find appropriate x coordinate of the message
             // so we can reduce the number of line breaks and squeezing the
             // message (avoids unreadable texts)
-            for (auto const& el: span_info) {
-                if (x_pos <= container_center_x) break;
-                auto index = std::get<0>(el);
-                auto const& message = as.messages[index];
-                auto prefix_len = std::size_t{};
-                auto lvls = std::get<1>(el);
-                auto diagnostic_counts = std::size_t{};
-                // find number of diagnostics and max diagnostic name size
-                for (auto l = 0ul; l < lvls.size(); ++l) {
-                    if (lvls[l]) {
-                        auto level = static_cast<DiagnosticLevel>(l);
-                        prefix_len = std::max(to_string(level).size() + /*'[' + ']'*/2, prefix_len);
-                        ++diagnostic_counts;
+            if ((x_pos > container_center_x) || true) {
+                for (auto const info: g.messages) {
+                    auto const& message = as.messages[info.message_index];
+                    auto diagnostic_counts = std::size_t{};
+                    auto prefix_len = std::size_t{};
+
+                    // iterator levels:
+                    // find number of diagnostics and max diagnostic name size
+                    {
+                        bit_iterator(info.level_bit_mask, [&prefix_len, &diagnostic_counts](std::size_t index) {
+                            auto level = static_cast<DiagnosticLevel>(index);
+
+                            prefix_len = std::max(
+                                to_string(level).size() + /*'[' + ']'*/2,
+                                prefix_len
+                            );
+                            ++diagnostic_counts;
+                        });
+                    }
+
+                    if (diagnostic_counts == 1) prefix_len = 0;
+
+                    // take bullet points into account inside the x-coordinate.
+                    auto padding = static_cast<dsize_t>(should_show_bullet_points);
+                    x_pos += padding;
+
+                    if (should_show_bullet_points) {
+                        auto bp = config.bullet_point;
+                        x_pos += core::utf8::calculate_size(bp);
+                    }
+
+                    auto tmp_style = style;
+                    // to break even if it's not a whitespace since a whole
+                    // might not fit in a line if container is too small. So measure might
+                    // fail and return content width of zero.
+                    tmp_style.break_whitespace = false;
+
+
+                    while (x_pos > container_center_x) {
+                        auto box = canvas.measure_text(
+                            message,
+                            x_pos,
+                            container.y,
+                            tmp_style
+                        );
+
+                        // calculate the upper end of the x-coordinate
+                        // x = text end x position + padding for box + diagnostic name + padding after
+                        //     diagnostic name + diagnostic indicator + place for bullet point.
+                        auto pos = max_x + 4 + prefix_len + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
+
+                        // If we maximized the max characters, then we cannot do anything so we break.
+                        if (style.max_width <= box.width + 2 && box.width != 0) break;
+
+                        bool should_shift = pos >= container.bottom_right().first;
+                        if (box.height > 2 || box.width == 0) should_shift = true;
+
+                        if (should_shift) {
+                            x_pos -= shift_by;
+                        } else {
+                            break;
+                        }
                     }
                 }
+            }
 
-                if (diagnostic_counts == 1) prefix_len = 0;
+            // Render messages
+            {
+                unsigned content_width{};
+                container.y += 2;
+                auto y = container.y + 1;
+                // Diagnostic level that will be used for rendering boxes and paths.
+                auto dominant_level = DiagnosticLevel::Help;
 
-                // take bullet points into account inside the x-coordinate.
-                auto padding = static_cast<dsize_t>(should_show_bullet_points);
-                x_pos += padding;
+                for (auto const& info: g.messages) {
+                    auto const& message = as.messages[info.message_index];
+                    auto diagnostic_counts = std::size_t{};
+                    auto current_level = DiagnosticLevel::Help;
 
-                if (should_show_bullet_points) {
+                    // iterator levels:
+                    {
+                        bit_iterator(info.level_bit_mask, [&dominant_level, &current_level, &diagnostic_counts](std::size_t index) {
+                            auto level = static_cast<DiagnosticLevel>(index);
+                            dominant_level = std::max(level, dominant_level);
+                            current_level = std::max(current_level, level);
+                            ++diagnostic_counts;
+                        });
+                    }
+
+                    auto color = diagnostic_level_to_color(std::span(config.level_to_color), current_level);
+
+                    auto tmp_as = AnnotatedString::builder();
+                    if (should_show_bullet_points) {
+                        // Add the Diagnostic prefix the builder.
+                        (void)tmp_as
+                            .with_style({ .text_color = color, .dim = true })
+                                .push("[")
+                                .push(to_string(current_level))
+                                .push("] ");
+                    }
+
+                    // Add the message.
+                    (void)tmp_as.push(message);
+
+                    // add the diagnostic indicator if more than one.
+                    if (diagnostic_counts > 1) {
+                        (void)tmp_as.push(" ");
+                        for (auto l = diagnostic_level_elements_count; l > 0; --l) {
+                            auto j = l - 1;
+                            auto mask = bit_masks[j];
+                            if ((info.level_bit_mask & mask) == 0) continue;
+                            auto level = static_cast<DiagnosticLevel>(j);
+                            (void)tmp_as.push(
+                                config.square,
+                                {
+                                    .text_color = diagnostic_level_to_color(std::span(config.level_to_color), level)
+                                }
+                            );
+                        }
+                    }
+
+                    auto x = x_pos + 1;
                     auto bp = config.bullet_point;
-                    x_pos += core::utf8::calculate_size(bp);
-                }
+                    if (should_show_bullet_points) {
+                        x += 1;
+                        // render bullet points
+                        canvas.draw_pixel(x, y, bp, term::Style {
+                            .text_color = color,
+                            .group_id = GroupId::diagnostic_message
+                        });
+                    }
 
-                auto tmp_style = style;
-                tmp_style.break_whitespace = false;
-                // shift only if we're on the upper half of the container.
+                    style.group_id = GroupId::diagnostic_message;
 
-                while (x_pos > container_center_x) {
-                    auto box = canvas.measure_text(
-                        message,
-                        x_pos,
-                        container.y,
-                        tmp_style
+                    // render the message.
+                    auto padding = static_cast<dsize_t>(should_show_bullet_points);
+                    [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
+                        tmp_as.build(),
+                        x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
+                        y,
+                        style
                     );
 
-                    // calculate the upper end of the x-coordinate
-                    // x = text end x position + padding for box + diagnostic name + padding after
-                    //     diagnostic name + diagnostic indicator + place for bullet point.
-                    auto pos = box.bottom_right().first + 4 + prefix_len + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
-
-                    // If we maximized the max characters, then we cannot do anything so we break.
-                    if (style.max_width <= box.width + 2 && box.width != 0) break;
-
-                    bool should_shift = pos >= container.bottom_right().first;
-                    if (box.height > 2 || box.width == 0) should_shift = true;
-
-                    if (should_shift) {
-                        x_pos -= shift_by;
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-
-            last_x_pos = x_pos;
-
-            unsigned content_width{};
-            container.y += 2;
-            auto y = container.y + 1;
-            // Diagnostic level that will be used for rendering boxes and paths.
-            auto dominant_level = DiagnosticLevel::Help;
-
-            for (auto const& [index, lvls]: span_info) {
-                auto const& message = as.messages[index];
-
-                auto diagnostic_counts = std::size_t{};
-                auto current_level = DiagnosticLevel::Help;
-                for (auto l = 0ul; l < lvls.size(); ++l) {
-                    if (lvls[l]) {
-                        auto level = static_cast<DiagnosticLevel>(l);
-                        dominant_level = std::max(level, dominant_level);
-                        current_level = std::max(current_level, level);
-                        ++diagnostic_counts;
-                    }
+                    // increase the y-coordinate by the text container height.
+                    y += text_container.height;
+                    auto tmp_width = text_container.width + /*border*/1;
+                    if (should_show_bullet_points) tmp_width += 1;
+                    content_width = std::min(std::max(content_width, tmp_width + padding), container.width);
                 }
 
-                auto color = diagnostic_level_to_color(std::span(config.level_to_color), current_level);
+                // Draw box
+                auto color = diagnostic_level_to_color(std::span(config.level_to_color), dominant_level);
 
-                auto tmp_as = AnnotatedString::builder();
-                if (should_show_bullet_points) {
-                    // Add the Diagnostic prefix the builder.
-                    (void)tmp_as
-                        .with_style({ .text_color = color, .dim = true })
-                            .push("[")
-                            .push(to_string(current_level))
-                            .push("] ");
+                auto content_height = (y - container.y - 1);
+                auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
+                auto box = term::BoundingBox {
+                    .x = x_pos,
+                    .y = container.y,
+                    .width = std::min(std::max(content_width, static_cast<unsigned>(to_string(dominant_level).size()) + 5), max_x - x_pos),
+                    .height = total_height - 1
+                };
+                container.y = y + 1;
+
+                auto box_style = term::Style {
+                    .text_color = color,
+                    .group_id = GroupId::diagnostic_message,
+                    .z_index = static_cast<int>(dominant_level),
+                };
+                canvas.draw_box(
+                    box.x,
+                    box.y,
+                    box.width,
+                    box.height,
+                    box_style,
+                    config.box_normal,
+                    config.box_bold
+                );
+
+                if (!should_show_bullet_points) {
+                    canvas.draw_text(
+                        AnnotatedString::builder()
+                            .push(" ").push(to_string(dominant_level)).push(" ").build(),
+                        box.x + 2,
+                        box.y,
+                        {
+                            .text_color = box_style.text_color,
+                            .group_id = box_style.group_id,
+                            .z_index = box_style.z_index + 1
+                        }
+                    );
                 }
 
-                // Add the message.
-                (void)tmp_as.push(message);
-
-                // add the diagnostic indicator if more than one.
-                if (diagnostic_counts > 1) {
-                    (void)tmp_as.push(" ");
-                    for (auto l = diagnostic_level_elements_count; l > 0; --l) {
-                        auto j = l - 1;
-                        if (!lvls[j]) continue;
-                        auto level = static_cast<DiagnosticLevel>(j);
-                        (void)tmp_as.push(
-                            config.square,
-                            {
-                                .text_color = diagnostic_level_to_color(std::span(config.level_to_color), level)
-                            }
-                        );
-                    }
-                }
-
-                auto x = x_pos + 1;
-                auto bp = config.bullet_point;
-                if (should_show_bullet_points) {
-                    x += 1;
-                    // render bullet points
-                    canvas.draw_pixel(x, y, bp, term::Style {
-                        .text_color = color,
-                        .group_id = GroupId::diagnostic_message
+                for (auto marker: g.spans) {
+                    points.push_back({
+                        marker,
+                        box,
+                        term::Style {
+                            .text_color = color,
+                            .z_index = static_cast<int>(dominant_level)
+                        }
                     });
                 }
-
-                style.group_id = GroupId::diagnostic_message;
-
-                // render the message.
-                auto padding = static_cast<dsize_t>(should_show_bullet_points);
-                [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
-                    tmp_as.build(),
-                    x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
-                    y,
-                    style
-                );
-
-                // increase the y-coordinate by the text container height.
-                y += text_container.height;
-                auto tmp_width = text_container.width + /*border*/1;
-                if (should_show_bullet_points) tmp_width += 1;
-                content_width = std::min(std::max(content_width, tmp_width + padding), container.width);
             }
-
-            auto color = diagnostic_level_to_color(std::span(config.level_to_color), dominant_level);
-
-            auto content_height = (y - container.y - 1);
-            auto total_height = /*top border*/1 + /*bottom border*/1 + content_height;
-            auto box = term::BoundingBox {
-                .x = x_pos,
-                .y = container.y,
-                .width = std::min(std::max(content_width, static_cast<unsigned>(to_string(dominant_level).size()) + 5), container.bottom_right().first - x_pos),
-                .height = total_height - 1
-            };
-            container.y = y + 1;
-
-            auto box_style = term::Style {
-                .text_color = color,
-                .group_id = GroupId::diagnostic_message,
-                .z_index = static_cast<int>(dominant_level),
-            };
-            canvas.draw_box(
-                box.x,
-                box.y,
-                box.width,
-                box.height,
-                box_style,
-                config.box_normal,
-                config.box_bold
-            );
-
-            if (!should_show_bullet_points) {
-                canvas.draw_text(
-                    AnnotatedString::builder()
-                        .push(" ").push(to_string(dominant_level)).push(" ").build(),
-                    box.x + 2,
-                    box.y,
-                    {
-                        .text_color = box_style.text_color,
-                        .group_id = box_style.group_id,
-                        .z_index = box_style.z_index + 1
-                    }
-                );
-            }
-
-            points.push_back({ span_point, box, term::Style {
-                .text_color = color,
-                .z_index = static_cast<int>(dominant_level)
-            } });
         }
 
         while (ruler_container.y < container.y) {
