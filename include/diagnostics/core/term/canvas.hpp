@@ -249,6 +249,8 @@ namespace dark::term {
         constexpr auto bottom_left() const noexcept -> std::pair<unsigned, unsigned> {
             return { x, y + height };
         }
+
+        constexpr auto operator==(BoundingBox const&) const noexcept -> bool = default;
     };
 
     struct Point {
@@ -1532,6 +1534,22 @@ struct std::hash<dark::term::Point> {
         auto h0 = std::hash<unsigned>{}(p.x);
         auto h1 = std::hash<unsigned>{}(p.y);
         return h0 ^ (h1 << 1);
+    }
+};
+
+template <>
+struct std::formatter<dark::term::Point> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::term::Point const& p, auto& ctx) const {
+        return std::format_to(ctx.out(), "Point(x: {}, y: {})", p.x, p.y);
     }
 };
 
