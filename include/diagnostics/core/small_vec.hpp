@@ -5,6 +5,7 @@
 #include <concepts>
 #include <initializer_list>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <span>
 #include <type_traits>
@@ -40,6 +41,8 @@ namespace dark::core {
         };
         static constexpr auto growth_factor = size_type{2};
     public:
+
+        static constexpr auto npos = std::numeric_limits<size_type>::max();
 
         SmallVec() noexcept = default;
 
@@ -273,12 +276,19 @@ namespace dark::core {
             return false;
         }
 
+        constexpr auto indexOf(T const& needle) const noexcept -> size_type requires (std::equality_comparable<T>) {
+            for (auto i = size_type{}; i < size(); ++i) {
+                if (this->operator[](i) == needle) return i;
+            }
+            return npos;
+        }
+
         auto reserve(size_type n) {
             if (n <= capacity()) return;
 
             if (is_small()) {
                 if (n > Cap) {
-                    auto ns = capacity();
+                    auto ns = std::max(capacity(), size_type{1});
                     while (ns < n) ns *= growth_factor;
 
                     auto ptr = m_alloc.allocate(ns);
@@ -287,7 +297,7 @@ namespace dark::core {
                     m_capacity = ns;
                 }
             } else {
-                auto ns = capacity();
+                auto ns = std::max(capacity(), size_type{1});
                 while (ns < n) ns *= growth_factor;
 
                 auto ptr = m_alloc.allocate(ns);
@@ -383,6 +393,8 @@ namespace dark::core {
         using allocator_t = A; 
         using size_type = typename base_type::size_type;
         using difference_type = typename base_type::difference_type;
+
+        static constexpr auto npos = std::numeric_limits<size_type>::max();
 
         SmallVec() noexcept = default;
 
@@ -515,6 +527,14 @@ namespace dark::core {
             }
             return false;
         }
+
+        constexpr auto indexOf(T const& needle) const noexcept -> size_type requires (std::equality_comparable<T>) {
+            for (auto i = size_type{}; i < size(); ++i) {
+                if (this->operator[](i) == needle) return i;
+            }
+            return npos;
+        }
+
 
         auto reserve(size_type n) {
             m_data.reserve(n);
