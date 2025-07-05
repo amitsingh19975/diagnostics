@@ -914,7 +914,7 @@ namespace dark::term {
             auto total_size = std::size_t{};
 
             for (auto const& el: as.strings) {
-                total_size += el.first.size();
+                total_size += el.first.to_borrowed().size();
             }
 
             auto is_first{true};
@@ -958,7 +958,7 @@ namespace dark::term {
 
             return {
                 BoundingBox(bbox.x, bbox.y, x - bbox.x, y - bbox.y),
-                as.size()
+                std::max(total_size, total_consumed) - total_consumed
             };
         }
 
@@ -1344,7 +1344,6 @@ namespace dark::term {
                 auto y = y_start;
                 auto global_index = dsize_t{};
                 auto needs_underline{false};
-                std::size_t consumed = std::size_t{};
                 chunk_end = std::min(as.strings.size(), chunk_end);
                 if (chunk_start >= chunk_end) return { false, 0 };
 
@@ -1417,7 +1416,6 @@ namespace dark::term {
                     auto found_end = false;
                     while (text_start < text.size() && x < max_x) {
                         auto len = core::utf8::get_length(text[text_start]);
-                        consumed += len;
                         if (global_index >= text_end) {
                             found_end = true;
                             break;
@@ -1428,11 +1426,6 @@ namespace dark::term {
 
                         auto txt = text.substr(text_start, len);
                         text_start += len;
-                        if (txt[0] == '\n') {
-                            found_end = true;
-                            break;
-                        }
-
                         global_index += len;
 
                         if (can_skip) {
@@ -1454,8 +1447,9 @@ namespace dark::term {
                             if (txt[0] == '\t') {
                                 iter = tab_width;
                                 txt = " ";
-                            } else if (text[text_start] == '\n') {
-                                return { needs_underline, consumed };
+                            } else if (txt[0] == '\n') {
+                                found_end = true;
+                                break;
                             }
 
                             for (auto i = 0ul; i < iter && x < max_x; ++i, ++x) {
@@ -1501,7 +1495,7 @@ namespace dark::term {
                 }
 
                 x = std::min(max_x, x);
-                return { needs_underline, consumed };
+                return { needs_underline, global_index };
             };
 
             auto needs_underline{false};
