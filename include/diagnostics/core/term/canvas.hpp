@@ -250,7 +250,32 @@ namespace dark::term {
             return { x, y + height };
         }
 
+        constexpr auto min_x() const noexcept -> unsigned { return x; }
+        constexpr auto min_y() const noexcept -> unsigned { return y; }
+        constexpr auto max_x() const noexcept -> unsigned { return x + width; }
+        constexpr auto max_y() const noexcept -> unsigned { return y + height; }
+
         constexpr auto operator==(BoundingBox const&) const noexcept -> bool = default;
+
+        constexpr auto expand(unsigned val) const noexcept -> BoundingBox {
+            return expand(val, val);
+        };
+
+        constexpr auto expand(unsigned x_axis, unsigned y_axis) const noexcept -> BoundingBox {
+            return {
+                .x = std::max(x_axis, x) - x_axis,
+                .y = std::max(y_axis, y) - y_axis,
+                .width = width + x_axis,
+                .height = height + y_axis
+            };
+        };
+
+        constexpr auto intersects(BoundingBox const& b) const noexcept -> bool {
+            return !(max_x() <= b.min_x() ||  // this box is completely to the left
+                     min_x() >= b.max_x() ||  // this box is completely to the right
+                     max_y() <= b.min_y() ||  // this box is completely above
+                     min_y() >= b.max_y());   // this box is completely below
+        }
     };
 
     struct Point {
@@ -1585,6 +1610,22 @@ struct std::formatter<dark::term::Point> {
 
     auto format(dark::term::Point const& p, auto& ctx) const {
         return std::format_to(ctx.out(), "Point(x: {}, y: {})", p.x, p.y);
+    }
+};
+
+template <>
+struct std::formatter<dark::term::BoundingBox> {
+    constexpr auto parse(auto& ctx) {
+        auto it = ctx.begin();
+        while (it != ctx.end()) {
+            if (*it == '}') break;
+            ++it;
+        }
+        return it;
+    }
+
+    auto format(dark::term::BoundingBox const& b, auto& ctx) const {
+        return std::format_to(ctx.out(), "Box(min_x: {}, max_x: {}, min_y: {}, max_y: {})", b.min_x(), b.max_x(), b.min_y(), b.max_y());
     }
 };
 
