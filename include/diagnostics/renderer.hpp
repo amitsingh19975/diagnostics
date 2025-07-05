@@ -2245,7 +2245,7 @@ namespace dark::internal {
                 last_box.x = std::max(last_box.x, container.x);
                 last_box.width = std::min(last_box.x, container.width);
 
-                max_y_rendered = std::max(max_y_rendered, box.max_y());
+                max_y_rendered = std::max(max_y_rendered, box.max_y() + 1);
             }
         }
 
@@ -2422,10 +2422,12 @@ namespace dark::internal {
 
     static inline auto render_path(
         term::Canvas& canvas,
+        term::BoundingBox container,
         point_container_t& points,
         DiagnosticRenderConfig const& config
     ) noexcept -> void {
         if (points.empty()) return;
+        (void)container;
         // The first pass: render the simple/straight paths.
         {
             // Simple paths:
@@ -2529,7 +2531,7 @@ namespace dark {
         auto content_container = term::BoundingBox {
             .x = ruler_container.top_right().first + 2,
             .y = bbox.height,
-            .width = static_cast<unsigned>(canvas.cols()),
+            .width = static_cast<unsigned>(canvas.cols()) - 2,
             .height = ~unsigned{0}
         };
         content_container.width -= content_container.x + 1;
@@ -2561,6 +2563,13 @@ namespace dark {
         );
 
         ruler_container.y = content_container.y;
+
+        auto allowed_path_container = term::BoundingBox {
+            .x = ruler_container.top_right().first,
+            .y = content_container.height,
+            .width = static_cast<unsigned>(canvas.cols()),
+            .height = content_container.height
+        };
         render_orphan_messages(
             canvas,
             annotations,
@@ -2569,7 +2578,7 @@ namespace dark {
             config
         );
 
-        render_path(canvas, points, config);
+        render_path(canvas, allowed_path_container, points, config);
 
         canvas.render(term);
     }
