@@ -885,12 +885,16 @@ namespace dark::term {
             }
 
             auto is_first{true};
+            auto org_padding = style.padding;
             while (total_consumed < total_size) {
                 current_line += 1;
 
                 max_x = std::max(max_x, x);
                 x = container.x + padding.left;
-                if (!is_first) x += style.word_wrap_start_padding;
+                if (!is_first) {
+                    x += style.word_wrap_start_padding;
+                    style.padding.left = org_padding.left + style.word_wrap_start_padding;
+                }
 
                 auto [
                     chunk_start,
@@ -1176,7 +1180,7 @@ namespace dark::term {
                     if (text[text_start] == '\n') {
                         // last character before the newline ('\n' not included)
                         res.min_line_boundary = { i + 1, text_start + len };
-                        res.word_boundary = res.global_size + len;
+                        res.word_boundary = res.global_size;
                         return res;
                     }
                     if (res.cols_occupied + inc <= max_width) {
