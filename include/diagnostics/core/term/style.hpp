@@ -67,7 +67,9 @@ namespace dark::term {
         PaddingValues padding{};
         TextAlign align{ TextAlign::Left };
         TextOverflow overflow{ TextOverflow::none };
-        bool trim_prefix{false};
+        bool trim_space{false};
+        // padding applied when text is broken into multiple lines
+        unsigned word_wrap_start_padding{};
 
         constexpr auto to_style() const noexcept -> Style {
             return {
@@ -87,7 +89,7 @@ namespace dark::term {
                 .bold = true,
                 .word_wrap = false,
                 .overflow = TextOverflow::ellipsis,
-                .trim_prefix = true
+                .trim_space = true
             };
         }
     };

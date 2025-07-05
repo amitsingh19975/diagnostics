@@ -884,11 +884,13 @@ namespace dark::term {
                 total_size += el.first.size();
             }
 
+            auto is_first{true};
             while (total_consumed < total_size) {
                 current_line += 1;
 
                 max_x = std::max(max_x, x);
                 x = container.x + padding.left;
+                if (!is_first) x += style.word_wrap_start_padding;
 
                 auto [
                     chunk_start,
@@ -912,6 +914,7 @@ namespace dark::term {
                 if (consumed == 0) break;
                 y += bottom_padding + 1;
                 if (current_line == style.max_lines) break;
+                is_first = false;
             }
             x = std::min(std::max(max_x, x), container.bottom_right().first) + padding.right;
             y += padding.bottom;
@@ -1112,10 +1115,10 @@ namespace dark::term {
         struct MeasureTextResult {
             unsigned cols_occupied{};
             bool can_overflow{false};
-            dsize_t global_size{};
+            unsigned global_size{};
             Span start_overflow{};
             Span middle_overflow{};
-            std::pair<std::size_t, std::size_t> word_boundary; // word end before cutting off
+            std::size_t word_boundary; // global index to word end before cutting off
             // Minimum line boundry that would fit the line.
             std::pair<std::size_t, std::size_t> min_line_boundary;
         };
@@ -1171,8 +1174,9 @@ namespace dark::term {
                     auto inc = text[text_start] == '\t' ? tab_width : 1;
 
                     if (text[text_start] == '\n') {
-                        res.min_line_boundary = { i + 1, text_start };
-                        res.word_boundary = res.min_line_boundary;
+                        // last character before the newline ('\n' not included)
+                        res.min_line_boundary = { i + 1, text_start + len };
+                        res.word_boundary = res.global_size + len;
                         return res;
                     }
                     if (res.cols_occupied + inc <= max_width) {
@@ -1181,7 +1185,7 @@ namespace dark::term {
                             is_between_word = !std::isspace(text[text_start + len]);
 
                             if (is_between_word != old_is_between_word) {
-                                res.word_boundary = { i + 1, text_start + len };
+                                res.word_boundary = res.global_size + len;
                             }
                         }
                     } else {
@@ -1233,7 +1237,7 @@ namespace dark::term {
             }
 
             if (res.cols_occupied <= max_width) {
-                res.word_boundary = { std::string_view::npos, std::string_view::npos };
+                res.word_boundary = std::string_view::npos;
             }
             return res;
         }
@@ -1252,6 +1256,24 @@ namespace dark::term {
             if (current_line > style.max_lines) return {
                 chunk_start, text_start, 0, 0
             };
+
+            // remove spaces from space from the start. 
+            if (style.trim_space) {
+                auto const& strs = as.strings;
+                for (; chunk_start < strs.size(); ++chunk_start) {
+                    auto const& el = strs[chunk_start];
+                    auto text = el.first.to_borrowed();
+                    bool found_none_whitespace{false};
+                    for (; text_start < text.size(); ++text_start) {
+                        if (text[text_start] != ' ') {
+                            found_none_whitespace = true;
+                            break;
+                        }
+                    }
+                    if (found_none_whitespace) break;
+                }
+            }
+
             auto width_info = measure_single_line_text_width_helper(
                 as,
                 chunk_start,
@@ -1280,6 +1302,7 @@ namespace dark::term {
                 std::size_t chunk_end = std::string_view::npos,
                 std::size_t text_end = std::string_view::npos
             ) -> std::pair<bool, std::size_t> {
+                 // compiler complains about the no being used even though we're are using it.
                 (void)this;
                 auto y = y_start;
                 auto global_index = dsize_t{};
@@ -1288,6 +1311,7 @@ namespace dark::term {
                 chunk_end = std::min(as.strings.size(), chunk_end);
                 if (chunk_start >= chunk_end) return { false, 0 };
 
+                // get how many cells are empty so we can apply alignment based on that.
                 auto free_space = std::max(max_x, cols_occupied) - cols_occupied;
 
                 if (style.align == TextAlign::Center) {
@@ -1299,6 +1323,7 @@ namespace dark::term {
                 auto first_style = as.strings[chunk_start].second;
                 auto start_x = x + first_style.padding.value_or(PaddingValues()).left;
 
+                // Calculate the top padding so we apply before rendering.
                 for (auto i = chunk_start; i < chunk_end; ++i) {
                     auto const& el = as.strings[i];
                     auto text = el.first.to_borrowed();
@@ -1313,6 +1338,8 @@ namespace dark::term {
                     global_index += len;
                 }
 
+                // If it's a first line and global style applies its own padding,
+                // we merge the two padding just (CSS's margin behaviour).
                 if (current_line == 1) {
                     top_padding = std::max(top_padding, style.padding.top) - style.padding.top;
                 }
@@ -1335,7 +1362,7 @@ namespace dark::term {
                     needs_underline |= !span_style.underline_marker.empty();
 
                     auto marker_index = std::size_t{};
-                    text_end = std::min(text.size(), text_end);
+                    // Render start ellipsis if the max line reached.
                     if (!ellipsis_rendered) {
                         if (style.max_lines == current_line && cols_occupied > max_x) {
                             if (style.overflow == TextOverflow::start_ellipsis) {
@@ -1350,22 +1377,28 @@ namespace dark::term {
                         }
                     }
 
-                    while (text_start < text_end && x < max_x) {
+                    auto found_end = false;
+                    while (text_start < text.size() && x < max_x) {
                         auto len = core::utf8::get_length(text[text_start]);
                         consumed += len;
+                        if (global_index >= text_end) {
+                            found_end = true;
+                            break;
+                        }
 
+                        // checks if the range lies within the overflow range, which will be skipped.
                         auto can_skip = overflow_section.is_between(global_index);
 
                         auto txt = text.substr(text_start, len);
                         text_start += len;
+                        if (txt[0] == '\n') {
+                            found_end = true;
+                            break;
+                        }
+
                         global_index += len;
 
                         if (can_skip) {
-                            if (!span_style.underline_marker.empty()) {
-                                auto mlen = core::utf8::get_length(text[marker_index]);
-                                marker_index = (marker_index + mlen) % span_style.underline_marker.size();
-                            }
-
                             if (!ellipsis_rendered) {
                                 if (style.max_lines == current_line && cols_occupied > max_x) {
                                     if (style.overflow == TextOverflow::middle_ellipsis) {
@@ -1379,25 +1412,26 @@ namespace dark::term {
                                     }
                                 }
                             }
-                            continue;
-                        }
-                        auto iter = 1ul;
-                        if (txt[0] == '\t') {
-                            iter = tab_width;
-                            txt = " ";
-                        } else if (text[text_start] == '\n') {
-                            return { needs_underline, consumed };
-                        }
+                        } else {
+                            auto iter = 1ul;
+                            if (txt[0] == '\t') {
+                                iter = tab_width;
+                                txt = " ";
+                            } else if (text[text_start] == '\n') {
+                                return { needs_underline, consumed };
+                            }
 
-                        for (auto i = 0ul; i < iter && x < max_x; ++i, ++x) {
-                            if constexpr (ShouldDraw) {
-                                draw_pixel(x, y, txt, span_style.to_style(style));
-                                if (span_style.underline_marker.empty()) continue;
-                                auto mlen = core::utf8::get_length(text[marker_index]);
-                                draw_pixel(x, y + 1, span_style.underline_marker.substr(marker_index, mlen), span_style.to_style(style));
+                            for (auto i = 0ul; i < iter && x < max_x; ++i, ++x) {
+                                if constexpr (ShouldDraw) {
+                                    draw_pixel(x, y, txt, span_style.to_style(style));
+                                    if (span_style.underline_marker.empty()) continue;
+                                    auto mlen = core::utf8::get_length(text[marker_index]);
+                                    draw_pixel(x, y + 1, span_style.underline_marker.substr(marker_index, mlen), span_style.to_style(style));
+                                }
                             }
                         }
 
+                        // iterate over the marker to get the next character.
                         if (!span_style.underline_marker.empty()) {
                             auto mlen = core::utf8::get_length(text[marker_index]);
                             marker_index = (marker_index + mlen) % span_style.underline_marker.size();
@@ -1411,10 +1445,9 @@ namespace dark::term {
                         bottom_padding = std::max(bottom_padding, padding.bottom);
                         top_padding = std::max(top_padding, padding.top);
                     }
+                    if (found_end) break;
 
                     if (text_start < text.size()) break;
-
-                    text_end = std::string_view::npos;
                     text_start = 0;
                 }
 
@@ -1440,8 +1473,7 @@ namespace dark::term {
             auto chunk_end = std::string_view::npos;
             auto text_end = std::string_view::npos;
             if (style.break_whitespace) {
-                chunk_end = width_info.word_boundary.first;
-                text_end = width_info.word_boundary.second;
+                text_end = width_info.word_boundary;
             }
 
             if (!style.word_wrap) {
@@ -1456,7 +1488,7 @@ namespace dark::term {
                 needs_underline = underline;
                 consumed_text = consumed;
             } else {
-                if (current_line < style.max_lines) {
+                if (current_line < style.max_lines || style.overflow == TextOverflow::none) {
                     auto [underline, consumed] = render(
                         chunk_start,
                         text_start,
@@ -1480,8 +1512,7 @@ namespace dark::term {
                     );
 
                     if (style.break_whitespace) {
-                        chunk_end = width_info.word_boundary.first;
-                        text_end = width_info.word_boundary.second;
+                        text_end = width_info.word_boundary;
                     }
 
                     auto overflow_span = Span();
