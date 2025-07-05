@@ -19,13 +19,16 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <print>
+#include <queue>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace dark {
     struct Markers {
@@ -71,7 +74,8 @@ namespace dark::internal {
         static constexpr unsigned diagnostic_ruler = 2;
         static constexpr unsigned diagnostic_annotation_base_offset = 3;
         static constexpr unsigned diagnostic_orphan_message = 4;
-        static constexpr unsigned diagnostic_message = 500; // must be the largest value
+        static constexpr unsigned diagnostic_message = 5;
+        static constexpr unsigned diagnostic_path = 500; // must be the highest value;
     };
 
     template <core::IsFormattable T>
@@ -1366,7 +1370,7 @@ namespace dark::internal {
                                     x = std::max(tx, x);
                                 }
 
-                                bottom_padding = std::max(marker_rel_pos, bottom_padding);
+                                bottom_padding = std::max(marker_rel_pos + 1, bottom_padding);
                             }
 
                             // Render after the marker
@@ -2057,6 +2061,8 @@ namespace dark::internal {
                         }
                     }
                 }
+
+                x_pos = std::max(x_pos, container.x);
             }
 
             // Render messages
@@ -2157,7 +2163,7 @@ namespace dark::internal {
                         }
                     }
 
-                    style.group_id = GroupId::diagnostic_message + static_cast<unsigned>(t);
+                    style.group_id = GroupId::diagnostic_message;
                     style.trim_space = true;
 
                     // render the message.
@@ -2221,7 +2227,7 @@ namespace dark::internal {
                         box,
                         term::Style {
                             .text_color = color,
-                            .group_id = style.group_id,
+                            .group_id = GroupId::diagnostic_path + static_cast<unsigned>(t),
                             .z_index = static_cast<int>(dominant_level)
                         }
                     });
@@ -2235,8 +2241,9 @@ namespace dark::internal {
             }
         }
 
-        container.y = max_y_rendered;
+        container.y = max_y_rendered + 1;
 
+        ruler_container.y = std::min(ruler_container.y, container.y);
         while (ruler_container.y < container.y) {
             render_ruler(
                 canvas,
@@ -2248,6 +2255,7 @@ namespace dark::internal {
             );
             ++ruler_container.y;
         }
+
         return container;
     }
 
@@ -2406,6 +2414,301 @@ namespace dark::internal {
         return container;
     }
 
+    struct DiagnosticPathGraph {
+    private:
+        enum class NodeState: std::uint8_t {
+            Open,
+            SameGroup,
+            DifferentGroup,
+            Blocked
+        };
+
+        enum class Direction {
+            None,
+            Up,
+            Right,
+            Down,
+            Left
+        };
+    public:
+
+        DiagnosticPathGraph(term::BoundingBox box)
+            : m_data(box.width * box.height, NodeState::Blocked)
+            , m_container(box)
+        {}
+        DiagnosticPathGraph(DiagnosticPathGraph const&) = delete;
+        DiagnosticPathGraph(DiagnosticPathGraph &&) = delete;
+        DiagnosticPathGraph& operator=(DiagnosticPathGraph const&) = delete;
+        DiagnosticPathGraph& operator=(DiagnosticPathGraph &&) = delete;
+        ~DiagnosticPathGraph() = default;
+
+        constexpr auto rows() const noexcept -> unsigned { return m_container.height; }
+        constexpr auto cols() const noexcept -> unsigned { return m_container.width; }
+
+        constexpr auto operator()(std::size_t r, std::size_t c) noexcept -> NodeState& {
+            assert(r >= m_container.y);
+            assert(c >= m_container.x);
+            return m_data[(r - m_container.y) * cols() + (c - m_container.x)];
+        }
+
+        constexpr auto operator()(std::size_t r, std::size_t c) const noexcept -> NodeState {
+            assert(r >= m_container.y);
+            assert(c >= m_container.x);
+            return m_data[(r - m_container.y) * cols() + (c - m_container.x)];
+        }
+
+        constexpr auto init(
+            term::Canvas const& canvas,
+            term::Point marker,
+            term::BoundingBox message,
+            term::Style const& style
+        ) noexcept -> void {
+            std::fill(m_data.begin(), m_data.end(), NodeState::Blocked);
+
+            for (auto y = marker.y; y < m_container.max_y(); ++y) {
+                auto x = m_container.min_x();
+                for (; x < m_container.max_x(); ++x) {
+                    auto const& cell = canvas(y, x);
+                    if (cell.to_string() == " " || cell.empty()) {
+                        this->operator()(y, x) = NodeState::Open;
+                    } else {
+                        break;
+                    }
+                }
+
+                for (; x < m_container.max_x(); ++x) {
+                    auto const& cell = canvas(y, x);
+                    if (message.inside(x, y)) {
+                        this->operator()(y, x) = NodeState::Blocked;
+                    } else if (cell.empty()) {
+                        this->operator()(y, x) = NodeState::Open;
+                    } else if (cell.to_string() == " ") {
+                        auto old_c = x;
+                        while (x < m_container.max_x() && canvas(y, x).to_string() == " ") {
+                            ++x;
+                        }
+                        auto len = x - old_c;
+                        if (len >= 4 || cell.style.group_id == 0) {
+                            this->operator()(y, x) = NodeState::Open;
+                        }
+                        x -= 1;
+                    } else if (cell.style.group_id == style.group_id) {
+                        this->operator()(y, x) = NodeState::SameGroup;
+                    } else if (cell.style.group_id >= GroupId::diagnostic_path) {
+                        this->operator()(y, x) = NodeState::DifferentGroup;
+                    }  else {
+                        this->operator()(y, x) = NodeState::Blocked;
+                    }
+                }
+
+                x = m_container.max_x();
+                for (; x > m_container.min_x(); --x) {
+                    auto const& cell = canvas(y, x - 1);
+                    if (cell.to_string() == " " || cell.empty()) {
+                        this->operator()(y, x) = NodeState::Open;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            auto x_center = message.min_x() + message.width / 2;
+            auto y_center = message.min_y() + message.height / 2;
+
+            std::array connectors = {
+                term::Point(message.min_x(), y_center), // left
+                term::Point(x_center, message.min_y()), // top
+                term::Point(message.max_x(), y_center), // right
+            };
+
+            for (auto p: connectors) {
+                this->operator()(p.y, p.x) = NodeState::SameGroup;
+            }
+        }
+
+        void debug_print() const {
+            for (auto r = m_container.min_y(); r < m_container.max_y(); ++r) {
+                for (auto c = m_container.min_x(); c < m_container.max_x(); ++c) {
+                    std::string_view ch = " ";
+                    switch (this->operator()(r, c)) {
+                    case NodeState::Open: ch = "."; break;
+                    case NodeState::SameGroup: ch = "S"; break;
+                    case NodeState::DifferentGroup: ch = "D"; break;
+                    case NodeState::Blocked: ch = "x"; break;
+                    }
+                    std::print("{}", ch);
+                }
+                std::println();
+            }
+        }
+
+        auto build_route(
+            term::Canvas& canvas,
+            term::Point start,
+            std::span<term::Point> goals,
+            term::Style const& style,
+            DiagnosticRenderConfig const& config
+        ) -> bool {
+            static constexpr auto blocked = std::numeric_limits<int>::max();
+            static constexpr auto turn_penality = 5;
+            using node_t = std::tuple<int /*heuristic*/, term::Point, Direction>;
+            std::priority_queue<node_t, std::vector<node_t>, std::greater<>> open_set{};
+            std::unordered_map<term::Point, std::pair<term::Point, Direction>> path_history;
+            std::unordered_map<term::Point, int> cost{};
+
+            open_set.emplace(0, start, Direction::None);
+            cost[start] = 0;
+
+            std::array neighbours = {
+                std::make_pair( 0,  1), // Down
+                std::make_pair(-1,  0), // Left
+                std::make_pair( 1,  0), // Right
+                std::make_pair( 0, -1), // Up
+            };
+
+            // std::println("Goal: {} | {}", goals, m_container);
+            while (!open_set.empty()) {
+                auto [h, current, dir] = open_set.top();
+                open_set.pop();
+
+                // canvas.draw_pixel(current.x, current.y, ".");
+                if (is_goal(goals, current)) {
+                    core::SmallVec<term::Point, 0> pts;
+                    for (auto p = current; p != start; p = path_history[p].first) {
+                        pts.push_back(p);
+                        this->operator()(p.y, p.x) = NodeState::SameGroup;
+                    }
+                    pts.push_back(start);
+                    start.y -= 1;
+                    pts.push_back(start);
+                    canvas.draw_path(pts, style);
+
+                    auto arrow_style = style;
+                    arrow_style.group_id = GroupId::diagnostic_message;
+                    canvas.draw_pixel(
+                        start.x,
+                        start.y,
+                        config.arrow_bold.up,
+                        arrow_style
+                    );
+
+                    auto connector = std::string_view{};
+
+                    switch (dir) {
+                        case Direction::Up: connector = config.box_normal.bottom_connector; break; 
+                        case Direction::Down: connector = config.box_normal.top_connector; break;
+                        case Direction::Left: connector = config.box_normal.right_connector; break;
+                        case Direction::Right: connector = config.box_normal.left_connector; break;
+                        default: break;
+                    }
+
+                    if (!connector.empty()) {
+                        canvas.draw_pixel(
+                            current.x, current.y,
+                            connector,
+                            style
+                        );
+                    }
+
+                    return true;
+                }
+
+                for (auto [dx, dy]: neighbours) {
+                    auto next = term::Point(
+                        static_cast<unsigned>(static_cast<int>(current.x) + dx),
+                        static_cast<unsigned>(static_cast<int>(current.y) + dy)
+                    );
+                    auto c = cell_cost(next.x, next.y);
+                    if (c == blocked) continue;
+                    auto new_dir = get_direction(current, next);
+                    auto old_cost = cost[current];
+                    auto new_cost = old_cost + c;
+
+                    if (new_dir != Direction::None && new_dir != dir) {
+                        new_cost += turn_penality;
+                    }
+
+                    if (!cost.contains(next) || new_cost < cost[next]) {
+                        cost[next] = new_cost;
+                        auto new_h = cal_heuristic(goals, next);
+                        open_set.emplace(new_cost + new_h, next, new_dir);
+                        path_history[next] = { current, new_dir };
+                    }
+                }
+            }
+
+            return false;
+        }
+    private:
+
+        static constexpr auto get_direction(term::Point cur, term::Point to) noexcept -> Direction {
+            if (cur.x == to.x) {
+                if (cur.y - 1 == to.y) return Direction::Up;
+                if (cur.y + 1 == to.y) return Direction::Down;
+            } else if (cur.y == to.y) {
+                if (cur.x - 1 == to.x) return Direction::Left;
+                if (cur.x + 1 == to.x) return Direction::Right;
+            }
+            return Direction::None;
+        }
+
+        static constexpr auto dist(term::Point s, term::Point e) noexcept -> int {
+            auto x1 = static_cast<int>(s.x);
+            auto y1 = static_cast<int>(s.y);
+            auto x2 = static_cast<int>(e.x);
+            auto y2 = static_cast<int>(e.y);
+            return std::abs(x2 - x1) + std::abs(y2 - y1);
+        }
+
+        static constexpr auto contains(std::span<term::Point> goals, term::Point p) noexcept -> bool {
+            return std::find(goals.begin(), goals.end(), p) != goals.end();
+        }
+
+        constexpr auto is_goal(std::span<term::Point> goals, term::Point p) const noexcept -> bool {
+            if (p.x >= m_container.max_x() || p.y >= m_container.max_y()) return false;
+            if (p.x < m_container.x || p.y < m_container.y) return false;
+            if (!goals.empty() && contains(goals, p)) return true;
+            return this->operator()(p.y, p.x) == NodeState::SameGroup;
+        }
+
+        constexpr auto cell_cost(unsigned x, unsigned y) const noexcept -> int {
+            static constexpr auto blocked = std::numeric_limits<int>::max();
+            if (x >= m_container.max_x() || y >= m_container.max_y()) return blocked;
+            if (x < m_container.x || y < m_container.y) {
+                return blocked;
+            }
+            auto const& cell = this->operator()(y, x);
+            switch (cell) {
+            case NodeState::Open: return 1;
+            case NodeState::SameGroup: return 1;
+            case NodeState::DifferentGroup: return 10;
+            default: return blocked;
+            }
+        }
+
+        constexpr auto cal_heuristic(std::span<term::Point> goals, term::Point p) const noexcept -> int {
+            auto d = std::numeric_limits<int>::max();
+            if (!goals.empty()) {
+                for (auto g: goals) {
+                    d = std::min(d, dist(p, g));
+                }
+            } else {
+                for (auto y = m_container.min_y(); y < m_container.max_y(); ++y) {
+                    for (auto x = m_container.min_x(); x < m_container.max_x(); ++x) {
+                        if (this->operator()(y, x) != NodeState::SameGroup) {
+                            continue;
+                        }
+                        d = std::min(d, dist(p, term::Point(x, y)));
+                    }
+                }
+            }
+            return d;
+        }
+    private:
+        std::vector<NodeState> m_data;
+        term::BoundingBox m_container;
+    };
+
     static inline auto render_path(
         term::Canvas& canvas,
         term::BoundingBox container,
@@ -2413,7 +2716,6 @@ namespace dark::internal {
         DiagnosticRenderConfig const& config
     ) noexcept -> void {
         if (points.empty()) return;
-        (void)container;
         // The first pass: render the simple/straight paths.
         {
             // Simple paths:
@@ -2466,10 +2768,12 @@ namespace dark::internal {
 
                 // render arrow
                 {
+                    auto arrow_style = style;
+                    arrow_style.group_id = GroupId::diagnostic_message;
                     canvas.draw_pixel(
                         arrow_pt.x, arrow_pt.y,
                         config.arrow_bold.up,
-                        style
+                        arrow_style
                     );
                 }
 
@@ -2481,9 +2785,58 @@ namespace dark::internal {
             if (points.size() == rendered_count) return;
         }
 
+        points.erase(std::remove_if(points.begin(), points.end(), [](auto const& el) {
+            return std::get<0>(el).x == 0;
+        }), points.end());
+
         // The last pass: find the complex using A* alogrithm paths and then render.
-        {
-           // for (auto  
+        for (auto i = 0ul; i < points.size();) {
+            auto [marker, message, style] = points[i];
+            marker.y += 2;
+            // marker.y += 1;
+
+            auto graph = DiagnosticPathGraph(container);
+            graph.init(canvas, marker, message, style);
+            // graph.debug_print();
+
+            std::array<term::Point, 3> message_connectors {
+                //   |--------|
+                //  >|--------|
+                //   |--------|
+                term::Point(message.min_x(), message.min_y() + message.height / 2),
+
+                //      v
+                // |---------|
+                // |---------|
+                // |---------|
+                term::Point(message.min_x() + message.width / 2, message.min_y()),
+
+                //  |--------|
+                //  |--------|<
+                //  |--------|
+                term::Point(message.max_x(), message.min_y() + message.height / 2),
+            };
+
+            graph.build_route(canvas, marker, message_connectors, style, config);
+
+            // graph.debug_print();
+            auto j = i + 1;
+            // join all the markers using the previously drawn path.
+            while (j < points.size()) {
+                auto p = points[j - 1];
+                auto c = points[j];
+                if (std::get<2>(p).group_id != std::get<2>(c).group_id) {
+                    break;
+                }
+
+                marker = std::get<0>(c);
+                marker.y += 2;
+
+                graph.build_route(canvas, marker, {}, style, config);
+                ++j;
+            }
+
+            i = j;
         }
     }
 } // namespace dark::internal
@@ -2515,12 +2868,11 @@ namespace dark {
         };
 
         auto content_container = term::BoundingBox {
-            .x = ruler_container.top_right().first + 2,
+            .x = ruler_container.max_x() + 2,
             .y = bbox.height,
-            .width = static_cast<unsigned>(canvas.cols()) - 2,
+            .width = static_cast<unsigned>(canvas.cols()) - ruler_container.max_x() - 2,
             .height = ~unsigned{0}
         };
-        content_container.width -= content_container.x + 1;
 
         auto annotations = normalize_diagnostic_messages(diag);
 
@@ -2548,14 +2900,16 @@ namespace dark {
             config
         );
 
+        auto allowed_path_container = term::BoundingBox {
+            .x = ruler_container.max_x(),
+            .y = bbox.height,
+            .width = static_cast<unsigned>(canvas.cols()) - ruler_container.max_x(),
+            .height = content_container.y - bbox.height
+        };
         ruler_container.y = content_container.y;
 
-        auto allowed_path_container = term::BoundingBox {
-            .x = ruler_container.top_right().first,
-            .y = content_container.height,
-            .width = static_cast<unsigned>(canvas.cols()),
-            .height = content_container.height
-        };
+        render_path(canvas, allowed_path_container, points, config);
+
         render_orphan_messages(
             canvas,
             annotations,
@@ -2564,7 +2918,6 @@ namespace dark {
             config
         );
 
-        render_path(canvas, allowed_path_container, points, config);
 
         canvas.render(term);
     }
