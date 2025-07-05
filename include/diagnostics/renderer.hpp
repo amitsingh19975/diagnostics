@@ -67,11 +67,11 @@ namespace dark {
 
 namespace dark::internal {
     struct GroupId {
-        static constexpr unsigned diagnostic_message = 1;
-        static constexpr unsigned diagnostic_source = 2;
-        static constexpr unsigned diagnostic_ruler = 3;
-        static constexpr unsigned diagnostic_annotation_base_offset = 4;
-        static constexpr unsigned diagnostic_orphan_message = 5;
+        static constexpr unsigned diagnostic_source = 1;
+        static constexpr unsigned diagnostic_ruler = 2;
+        static constexpr unsigned diagnostic_annotation_base_offset = 3;
+        static constexpr unsigned diagnostic_orphan_message = 4;
+        static constexpr unsigned diagnostic_message = 500; // must be the largest value
     };
 
     template <core::IsFormattable T>
@@ -1930,22 +1930,6 @@ namespace dark::internal {
             }
         }
 
-
-        // for (auto const& el: groups) {
-        //     std::print("message: [");
-        //     for (auto const& m: el.messages) {
-        //         std::print("('{}', {:b}, Box({}, {}, {}, {})), ", as.messages[m.message_index].strings[0].first.to_borrowed(), m.level_bit_mask, m.box.x, m.box.y, m.box.width, m.box.height);
-        //     }
-        //     std::println("]");
-        //     std::print("spans: [");
-        //     for (auto const& s: el.spans) {
-        //         std::print("{}, ", s.to_pair());
-        //     }
-        //     std::println("]");
-        //
-        //     std::println("x_pos: {}\n\n", el.x_pos);
-        // }
-
         // Sort the groups by the largest x position to the lowest.
         std::sort(groups.begin(), groups.end(), [](MessageGroup const& l, MessageGroup const& r) {
             return l.x_pos > r.x_pos;
@@ -1984,7 +1968,8 @@ namespace dark::internal {
         auto last_box = term::BoundingBox{};
         auto max_y_rendered = container.y;
 
-        for (auto const& g: groups) {
+        for (auto t = 0ul; t < groups.size(); ++t) {
+            auto const& g = groups[t];
             auto x_pos = g.x_pos;
 
             auto style = term::TextStyle {
@@ -2172,7 +2157,7 @@ namespace dark::internal {
                         }
                     }
 
-                    style.group_id = GroupId::diagnostic_message;
+                    style.group_id = GroupId::diagnostic_message + static_cast<unsigned>(t);
                     style.trim_space = true;
 
                     // render the message.
@@ -2203,7 +2188,7 @@ namespace dark::internal {
 
                 auto box_style = term::Style {
                     .text_color = color,
-                    .group_id = GroupId::diagnostic_message,
+                    .group_id = style.group_id,
                     .z_index = static_cast<int>(dominant_level),
                 };
                 canvas.draw_box(
@@ -2236,6 +2221,7 @@ namespace dark::internal {
                         box,
                         term::Style {
                             .text_color = color,
+                            .group_id = style.group_id,
                             .z_index = static_cast<int>(dominant_level)
                         }
                     });
@@ -2495,9 +2481,9 @@ namespace dark::internal {
             if (points.size() == rendered_count) return;
         }
 
-        // The last pass: find the complex paths and then render.
+        // The last pass: find the complex using A* alogrithm paths and then render.
         {
-            
+           // for (auto  
         }
     }
 } // namespace dark::internal
