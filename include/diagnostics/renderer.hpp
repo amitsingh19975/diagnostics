@@ -2061,8 +2061,6 @@ namespace dark::internal {
                         }
                     }
                 }
-
-                x_pos = std::max(x_pos, container.x);
             }
 
             // Render messages
@@ -2086,9 +2084,9 @@ namespace dark::internal {
                             tmp_style
                         );
 
-                        auto box_end = box.bottom_right().first + 4 + prefix_len + (diagnostic_count - 1) + (should_show_bullet_points ? 2 : 0);
+                        auto box_end = box.width + 5 + prefix_len + (diagnostic_count - 1) + (should_show_bullet_points ? 2 : 0);
 
-                        content_width = std::max(content_width, static_cast<unsigned>(box_end)) - x_pos;
+                        content_width = std::max(content_width, static_cast<unsigned>(box_end));
                     }
 
                     auto content_box = term::BoundingBox{
@@ -2166,13 +2164,35 @@ namespace dark::internal {
                     style.group_id = GroupId::diagnostic_message;
                     style.trim_space = true;
 
+                    auto new_message = tmp_as.build();
                     // render the message.
-                    [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
-                        tmp_as.build(),
+                    auto [text_container, p] = canvas.draw_text(
+                        new_message,
                         x_pos,
                         y,
                         style
                     );
+
+                    if (p != 0) {
+                        auto y_max = std::min(text_container.max_y(), static_cast<unsigned>(canvas.rows()));
+                        auto x_max = std::min(text_container.max_x(), static_cast<unsigned>(canvas.cols()));
+                        for (auto ty = text_container.min_y(); ty < y_max; ++ty) {
+                            for (auto tx = text_container.min_x(); tx < x_max; ++tx) {
+                                canvas(ty, tx) = {};
+                            }
+                        }
+
+                        auto tmp_style = style;
+                        tmp_style.break_whitespace = false;
+                        auto res = canvas.draw_text(
+                            new_message,
+                            x_pos,
+                            y,
+                            tmp_style
+                        );
+
+                        text_container = res.bbox;
+                    }
 
                     // increase the y-coordinate by the text container height.
                     y += text_container.height;
@@ -2870,7 +2890,7 @@ namespace dark {
         auto content_container = term::BoundingBox {
             .x = ruler_container.max_x() + 2,
             .y = bbox.height,
-            .width = static_cast<unsigned>(canvas.cols()) - ruler_container.max_x() - 2,
+            .width = static_cast<unsigned>(canvas.cols()) - ruler_container.max_x() - 3,
             .height = ~unsigned{0}
         };
 
