@@ -25,6 +25,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace dark {
     struct Markers {
@@ -1980,6 +1981,9 @@ namespace dark::internal {
             }
         };
 
+        auto last_box = term::BoundingBox{};
+        auto max_y_rendered = container.y;
+
         for (auto const& g: groups) {
             auto x_pos = g.x_pos;
 
@@ -1990,7 +1994,46 @@ namespace dark::internal {
                 .padding = term::PaddingValues(0, 2, 0, 2)
             };
 
-            bool should_show_bullet_points = g.messages.size() > 1;
+            auto bp = config.bullet_point;
+            bool should_show_bullet_points = (g.messages.size() > 1) && !bp.empty();
+
+            auto measure_helper = [&](MessageInfo const& info) {
+                auto diagnostic_count = std::size_t{};
+                auto prefix_len = unsigned{};
+
+                // iterator levels:
+                // find number of diagnostics and max diagnostic name size
+                {
+                    bit_iterator(info.level_bit_mask, [&prefix_len, &diagnostic_count](std::size_t index) {
+                        auto level = static_cast<DiagnosticLevel>(index);
+
+                        prefix_len = std::max(
+                            static_cast<unsigned>(to_string(level).size()) + /*'[' + ']'*/2,
+                            prefix_len
+                        );
+                        ++diagnostic_count;
+                    });
+                }
+
+                unsigned header_size = 0; // ─ Note ─
+                if (diagnostic_count == 1) {
+                    header_size = /*'─'*/ 1 + /*Diagnostic name*/ prefix_len + /*'─'*/ 1;
+                    prefix_len = 0;
+                }
+
+                // take bullet points into account inside the x-coordinate.
+                if (should_show_bullet_points) {
+                    x_pos += core::utf8::calculate_size(bp) + /*padding for space*/ 1;
+                }
+
+                auto tmp_style = style;
+                // to break even if it's not a whitespace since a whole
+                // might not fit in a line if container is too small. So measure might
+                // fail and return content width of zero.
+                tmp_style.break_whitespace = false;
+
+                return std::make_tuple(diagnostic_count, prefix_len, header_size, tmp_style);
+            };
 
             // Now, try to find appropriate x coordinate of the message
             // so we can reduce the number of line breaks and squeezing the
@@ -1998,40 +2041,8 @@ namespace dark::internal {
             if ((x_pos > container_center_x) || true) {
                 for (auto const info: g.messages) {
                     auto const& message = as.messages[info.message_index];
-                    auto diagnostic_counts = std::size_t{};
-                    auto prefix_len = std::size_t{};
 
-                    // iterator levels:
-                    // find number of diagnostics and max diagnostic name size
-                    {
-                        bit_iterator(info.level_bit_mask, [&prefix_len, &diagnostic_counts](std::size_t index) {
-                            auto level = static_cast<DiagnosticLevel>(index);
-
-                            prefix_len = std::max(
-                                to_string(level).size() + /*'[' + ']'*/2,
-                                prefix_len
-                            );
-                            ++diagnostic_counts;
-                        });
-                    }
-
-                    if (diagnostic_counts == 1) prefix_len = 0;
-
-                    // take bullet points into account inside the x-coordinate.
-                    auto padding = static_cast<dsize_t>(should_show_bullet_points);
-                    x_pos += padding;
-
-                    if (should_show_bullet_points) {
-                        auto bp = config.bullet_point;
-                        x_pos += core::utf8::calculate_size(bp);
-                    }
-
-                    auto tmp_style = style;
-                    // to break even if it's not a whitespace since a whole
-                    // might not fit in a line if container is too small. So measure might
-                    // fail and return content width of zero.
-                    tmp_style.break_whitespace = false;
-
+                    auto [diagnostic_count, prefix_len, header_size, tmp_style] = measure_helper(info);
 
                     while (x_pos > container_center_x) {
                         auto box = canvas.measure_text(
@@ -2041,10 +2052,12 @@ namespace dark::internal {
                             tmp_style
                         );
 
+                        box.width = std::max(box.width, header_size);
+
                         // calculate the upper end of the x-coordinate
                         // x = text end x position + padding for box + diagnostic name + padding after
                         //     diagnostic name + diagnostic indicator + place for bullet point.
-                        auto pos = max_x + 4 + prefix_len + (diagnostic_counts - 1) + (should_show_bullet_points ? 2 : 0);
+                        auto pos = box.bottom_right().first + 4 + prefix_len + (diagnostic_count - 1) + (should_show_bullet_points ? 2 : 0);
 
                         // If we maximized the max characters, then we cannot do anything so we break.
                         if (style.max_width <= box.width + 2 && box.width != 0) break;
@@ -2064,6 +2077,42 @@ namespace dark::internal {
             // Render messages
             {
                 unsigned content_width{};
+                if (last_box.width != 0) {
+                    // Measure content width to find if the boxes are intersecting.
+                    for (auto const info: g.messages) {
+                        auto const& message = as.messages[info.message_index];
+
+                        auto [diagnostic_count,
+                              prefix_len,
+                              header_size,
+                              tmp_style
+                             ] = measure_helper(info);
+
+                        auto box = canvas.measure_text(
+                            message,
+                            x_pos,
+                            container.y,
+                            tmp_style
+                        );
+
+                        auto box_end = box.bottom_right().first + 4 + prefix_len + (diagnostic_count - 1) + (should_show_bullet_points ? 2 : 0);
+
+                        content_width = std::max(content_width, static_cast<unsigned>(box_end)) - x_pos;
+                    }
+
+                    auto content_box = term::BoundingBox{
+                        .x = x_pos,
+                        .y = last_box.y,
+                        .width = content_width,
+                        .height = last_box.height
+                    };
+                    if (last_box.intersects(content_box)) {
+                        container.y += last_box.height;
+                    }
+
+                    content_width = 0;
+                }
+
                 container.y += 2;
                 auto y = container.y + 1;
                 // Diagnostic level that will be used for rendering boxes and paths.
@@ -2088,6 +2137,13 @@ namespace dark::internal {
 
                     auto tmp_as = AnnotatedString::builder();
                     if (should_show_bullet_points) {
+                        // add bullet point
+                        (void)tmp_as.push(bp, {
+                            .text_color = color,
+                            .padding = term::PaddingValues(0, 1, 0, 0)
+                        });
+                        style.word_wrap_start_padding = static_cast<unsigned>(core::utf8::calculate_size(bp) + 1);
+
                         // Add the Diagnostic prefix the builder.
                         (void)tmp_as
                             .with_style({ .text_color = color, .dim = true })
@@ -2116,33 +2172,21 @@ namespace dark::internal {
                         }
                     }
 
-                    auto x = x_pos + 1;
-                    auto bp = config.bullet_point;
-                    if (should_show_bullet_points) {
-                        x += 1;
-                        // render bullet points
-                        canvas.draw_pixel(x, y, bp, term::Style {
-                            .text_color = color,
-                            .group_id = GroupId::diagnostic_message
-                        });
-                    }
-
                     style.group_id = GroupId::diagnostic_message;
+                    style.trim_space = true;
 
                     // render the message.
-                    auto padding = static_cast<dsize_t>(should_show_bullet_points);
                     [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
                         tmp_as.build(),
-                        x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
+                        x_pos,
                         y,
                         style
                     );
 
                     // increase the y-coordinate by the text container height.
                     y += text_container.height;
-                    auto tmp_width = text_container.width + /*border*/1;
-                    if (should_show_bullet_points) tmp_width += 1;
-                    content_width = std::min(std::max(content_width, tmp_width + padding), container.width);
+                    auto tmp_width = text_container.width;
+                    content_width = std::min(std::max(content_width, tmp_width), container.width);
                 }
 
                 // Draw box
@@ -2153,10 +2197,9 @@ namespace dark::internal {
                 auto box = term::BoundingBox {
                     .x = x_pos,
                     .y = container.y,
-                    .width = std::min(std::max(content_width, static_cast<unsigned>(to_string(dominant_level).size()) + 5), max_x - x_pos),
+                    .width = std::min(content_width, max_x - x_pos),
                     .height = total_height - 1
                 };
-                container.y = y + 1;
 
                 auto box_style = term::Style {
                     .text_color = color,
@@ -2173,7 +2216,7 @@ namespace dark::internal {
                     config.box_bold
                 );
 
-                if (!should_show_bullet_points) {
+                if (!should_show_bullet_points && !bp.empty()) {
                     canvas.draw_text(
                         AnnotatedString::builder()
                             .push(" ").push(to_string(dominant_level)).push(" ").build(),
@@ -2197,8 +2240,16 @@ namespace dark::internal {
                         }
                     });
                 }
+
+                last_box = box.expand(6, 0);
+                last_box.x = std::max(last_box.x, container.x);
+                last_box.width = std::min(last_box.x, container.width);
+
+                max_y_rendered = std::max(max_y_rendered, box.max_y());
             }
         }
+
+        container.y = max_y_rendered;
 
         while (ruler_container.y < container.y) {
             render_ruler(
