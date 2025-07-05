@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cctype>
+#include <compare>
 #include <cstdint>
 #include <string_view>
 #include <utility>
@@ -276,6 +277,10 @@ namespace dark::term {
                      max_y() <= b.min_y() ||  // this box is completely above
                      min_y() >= b.max_y());   // this box is completely below
         }
+
+        constexpr auto inside(unsigned x_, unsigned y_) const noexcept -> bool {
+            return (min_x() <= x_ && x_ <= max_x()) && (min_y() <= y_ && y_ <= max_y());
+        }
     };
 
     struct Point {
@@ -283,6 +288,9 @@ namespace dark::term {
         unsigned y;
 
         constexpr auto operator==(Point const&) const noexcept -> bool = default;
+        constexpr auto operator<=>(Point const& other) const noexcept -> std::strong_ordering {
+            return to_pair() <=> other.to_pair();
+        }
 
         constexpr auto to_pair() const noexcept -> std::pair<unsigned, unsigned> {
             return std::make_pair(x, y);
@@ -1615,17 +1623,25 @@ struct std::formatter<dark::term::Point> {
 
 template <>
 struct std::formatter<dark::term::BoundingBox> {
+    bool with_size{false};
     constexpr auto parse(auto& ctx) {
         auto it = ctx.begin();
         while (it != ctx.end()) {
             if (*it == '}') break;
+            if (*it == 's') {
+                with_size = true;
+            }
             ++it;
         }
         return it;
     }
 
     auto format(dark::term::BoundingBox const& b, auto& ctx) const {
-        return std::format_to(ctx.out(), "Box(min_x: {}, max_x: {}, min_y: {}, max_y: {})", b.min_x(), b.max_x(), b.min_y(), b.max_y());
+        if (with_size) {
+            return std::format_to(ctx.out(), "Box(x: {}, y: {}, width: {}, height: {})", b.x, b.y, b.width, b.height);
+        } else {
+            return std::format_to(ctx.out(), "Box(min_x: {}, max_x: {}, min_y: {}, max_y: {})", b.min_x(), b.max_x(), b.min_y(), b.max_y());
+        }
     }
 };
 
