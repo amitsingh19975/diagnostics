@@ -1778,9 +1778,7 @@ namespace dark::internal {
                             normalized_tokens.push_back(std::move(tmp));
                         }
                     }
-                    // std::println("Count: {}, {} | {} > {} | {}", total_canvas_cols, cols_occupied, offset, com * 2, failed_count);
                     ++failed_count;
-                    // exit(0);
                 } while (!success);
 
                 if (!normalized_tokens.empty()) {
@@ -1882,14 +1880,17 @@ namespace dark::internal {
             core::SmallVec<std::uint32_t, 0> messages_to_be_removed; 
             message_level_map.reserve(as.messages.size());
 
+            // keep matching sets with larger and larger size.
             for (auto sets = 1ul; sets <= total_points;) {
                 auto it = message_marker_sets.begin();
                 message_level_map.clear();
                 messages_to_be_removed.clear();
+                // find the set with size 'sets'
                 for (; it != message_marker_sets.end(); ++it) {
                     if (it->second.size() == sets) break;
                 }
 
+                // if there is no set with size 'sets', move to next set size.
                 if (it == message_marker_sets.end()) {
                     ++sets;
                     continue;
@@ -1899,8 +1900,10 @@ namespace dark::internal {
                 message_level_map[pi.index] |= bit_masks[pi.level];
                 auto const& markers = it->second;
                 messages_to_be_removed.push_back(it->first);
+
                 ++it;
 
+                // Find all the duplicate sets.
                 for (; it != message_marker_sets.end(); ++it) {
                     if (it->second == markers) {
                         messages_to_be_removed.push_back(it->first);
@@ -1924,6 +1927,7 @@ namespace dark::internal {
                     avg_x += m.x;
                 }
 
+                // use the centroid/COM for the x coord
                 g.x_pos = std::max(avg_x / std::max<unsigned>(1u, count), min_x);
 
                 for (auto p: messages_to_be_removed) {
@@ -1942,6 +1946,7 @@ namespace dark::internal {
         {
             std::unordered_set<unsigned> x_positions;
 
+            // shift the message left by 2 if they lies vertically below each other.
             for (auto& g: groups) {
                 while (x_positions.contains(g.x_pos)) {
                     if (g.x_pos == min_x) break;
@@ -2095,6 +2100,7 @@ namespace dark::internal {
                         .width = content_width,
                         .height = last_box.height
                     };
+                    // move the message down if the last message lies inside the current message bounding box.
                     if (last_box.intersects(content_box)) {
                         container.y += last_box.height;
                     }
@@ -2295,27 +2301,31 @@ namespace dark::internal {
             auto j = i + 1;
             auto level = as.orphans[i].level;
             auto color = diagnostic_level_to_color(std::span(config.level_to_color), level);
+            // merge all the message that have same diagnostic level
             for (; j < as.orphans.size(); ++j) {
                 if (as.orphans[j].level != as.orphans[i].level) break;
             }
 
             auto y = container.y + 1;
+            // if there are more than 1 items show the bullet points.
             auto should_show_bullet_points = j - i > 1;
             auto content_width = dsize_t{};
+
+            // iterate over the diagnostic messages.
             for (; i < j; ++i) {
                 auto x = container.x + 2;
                 auto bp = config.bullet_point;
-                if (!should_show_bullet_points) {
-                    bp = "";
+                auto padding = unsigned{};
+                if (should_show_bullet_points && !bp.empty()) {
+                    canvas.draw_pixel(x, y, bp, {
+                        .text_color = diagnostic_level_to_color(std::span(config.level_to_color), level),
+                        .group_id = GroupId::diagnostic_orphan_message
+                    });
+                    padding = static_cast<dsize_t>(should_show_bullet_points) + static_cast<dsize_t>(core::utf8::calculate_size(bp));
                 }
-                canvas.draw_pixel(x, y, bp, {
-                    .text_color = diagnostic_level_to_color(std::span(config.level_to_color), level),
-                    .group_id = GroupId::diagnostic_orphan_message
-                });
-                auto padding = static_cast<dsize_t>(should_show_bullet_points);
                 [[maybe_unused]] auto [text_container, p] = canvas.draw_text(
                     as.messages[as.orphans[i].message_index],
-                    x + static_cast<dsize_t>(core::utf8::calculate_size(bp)) + padding,
+                    x + padding,
                     y,
                     {
                         .group_id = GroupId::diagnostic_orphan_message,
