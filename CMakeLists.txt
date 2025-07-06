@@ -32,7 +32,7 @@ option(ENABLE_TESTING "Enable Test Builds" ON)
 if(ENABLE_TESTING)
     enable_testing()
     message("Building Tests. Be sure to check out test/ directory")
-    #    add_subdirectory(test)
+    add_subdirectory(test)
 endif(ENABLE_TESTING)
 
 add_subdirectory(examples)
