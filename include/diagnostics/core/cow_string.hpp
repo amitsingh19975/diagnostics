@@ -68,13 +68,33 @@ namespace dark::core {
             destroy();
         }
 
-        explicit CowString(char const* s, OwnedTag = {})
+        // INFO: to avoid overload resolution that always chooses the non-templated version of string.
+        // Therefore, we've to template this version to force compiler to consider non-decayed version.
+        template <std::same_as<char const*> T>
+        explicit CowString(T s, OwnedTag = {})
             : CowString(std::string(s))
         {}
 
-        explicit CowString(char const* s, BorrowedTag)
+        // INFO: to avoid overload resolution that always chooses the non-templated version of string.
+        // Therefore, we've to template this version to force compiler to consider non-decayed version.
+        template <std::same_as<char const*> T>
+        explicit CowString(T s, BorrowedTag)
             : CowString(std::string_view(s))
         {}
+
+        template <std::size_t N>
+        constexpr CowString(const char (&s)[N], OwnedTag) noexcept
+            : m_state(OWNED)
+        {
+            new(m_data.data) std::string(s);
+        }
+
+        template <std::size_t N>
+        constexpr CowString(const char (&s)[N], BorrowedTag = {}) noexcept
+            : m_state(BORROWED)
+        {
+            new(m_data.data) std::string_view(s);
+        }
 
         explicit CowString(std::string const& s, OwnedTag = {})
             : m_state(OWNED)
@@ -98,20 +118,6 @@ namespace dark::core {
             : m_state(OWNED)
         {
             new(m_data.data) std::string(s);
-        }
-
-        template <std::size_t N>
-        constexpr CowString(const char (&s)[N], OwnedTag) noexcept
-            : m_state(OWNED)
-        {
-            new(m_data.data) std::string(s);
-        }
-
-        template <std::size_t N>
-        constexpr CowString(const char (&s)[N], BorrowedTag = {}) noexcept
-            : m_state(BORROWED)
-        {
-            new(m_data.data) std::string_view(s);
         }
 
         constexpr auto is_owned() const noexcept -> bool {
@@ -185,6 +191,18 @@ namespace dark::core {
             using std::swap;
             swap(lhs.m_data, rhs.m_data);
             swap(lhs.m_state, rhs.m_state);
+        }
+
+        constexpr auto operator==(CowString const& other) const noexcept -> bool {
+            return to_borrowed() == other.to_borrowed();
+        }
+
+        friend constexpr auto operator==(CowString const& lhs, std::string_view rhs) noexcept -> bool {
+            return lhs.to_borrowed() == rhs;
+        }
+
+        friend constexpr auto operator==(std::string_view lhs, CowString const& rhs) noexcept -> bool {
+            return lhs == rhs.to_borrowed();
         }
     private:
         auto as_owned() -> std::string& {

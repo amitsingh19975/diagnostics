@@ -4,7 +4,9 @@
 #include "cow_string.hpp"
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <format>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <memory.h>
@@ -60,6 +62,7 @@ namespace dark::core {
 
     template <typename T>
     concept IsFormattable =
+        std::constructible_from<CowString, T> ||
         IsFormattableUsingMember<T> ||
         IsFormattableUsingGlobalOverload<T> ||
         IsFormattableUsingStandardToString<T> ||
@@ -132,7 +135,7 @@ namespace dark::core {
             }
 
             auto dealloc(allocator_t& alloc) -> void {
-                if (!deleter) {
+                if (deleter) {
                     deleter(*this, alloc);
                 }
             }
@@ -237,6 +240,14 @@ namespace dark::core {
             allocator_t alloc = {}
         )
            : FormatterAnyArg(CowString(val), alloc)
+        {}
+
+        template <std::size_t N>
+        FormatterAnyArg(
+            char const (&s)[N],
+            allocator_t alloc = {}
+        )
+           : FormatterAnyArg(CowString(std::string_view(s), CowString::BorrowedTag{}), alloc)
         {}
 
         auto to_string(std::string_view fmt) const -> std::string {

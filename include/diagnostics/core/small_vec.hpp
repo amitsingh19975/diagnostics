@@ -568,7 +568,6 @@ namespace dark::core {
         constexpr auto operator==(SmallVec const& other) const noexcept -> bool {
             return m_data == other.m_data;
         }
-
     private:
         base_type m_data;
     };

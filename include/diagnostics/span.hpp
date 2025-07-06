@@ -9,6 +9,7 @@
 #include <functional>
 #include <optional>
 #include <format>
+#include <ostream>
 #include <type_traits>
 
 namespace dark {
@@ -128,7 +129,7 @@ namespace dark {
             auto lhs = *this;
             auto rhs = other;
 
-            if (start() > other.start()) {
+            if (lhs.start() > rhs.start()) {
                 std::swap(lhs, rhs);
             }
 
@@ -140,12 +141,12 @@ namespace dark {
                 auto s1 = Span(lhs.start(), rhs.start());
                 auto s2 = Span(rhs.start(), rhs.end());
                 auto s3 = Span(rhs.end(), lhs.end());
-                return {s1, s2, s2};
+                return {s1, s2, s3};
             } else {
                 auto s1 = Span(lhs.start(), rhs.start());
                 auto s2 = Span(rhs.start(), lhs.end());
                 auto s3 = Span(lhs.end(), rhs.end());
-                return {s1, s2, s2};
+                return {s1, s2, s3};
             }
         }
 
@@ -186,6 +187,10 @@ namespace dark {
         }
 
         constexpr auto center() const noexcept -> dsize_t { return start() + size() / 2; }
+
+        friend std::ostream& operator<<(std::ostream& os, Span const& s) {
+            return os << "Span(start=" << s.start() << ", end=" << s.end() << ", size=" << s.size() << ')';
+        }
     private:
         size_type m_start{};
         size_type m_size{};

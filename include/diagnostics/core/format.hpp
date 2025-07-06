@@ -4,6 +4,7 @@
 #include "cow_string.hpp"
 #include "small_vec.hpp"
 #include "format_any.hpp"
+#include <concepts>
 #include <format>
 #include <functional>
 #include <span>
@@ -18,6 +19,16 @@ namespace dark {
         using format_string = std::format_string<
             std::conditional_t<!std::same_as<std::remove_cvref_t<Args>, FormatterAnyArg>, FormatterAnyArg, Args>...
         >;
+        namespace detail {
+            template <typename T>
+            constexpr auto to_format_arg(T&& arg) -> FormatterAnyArg {
+                if constexpr (std::constructible_from<CowString, T>) {
+                    return { CowString(std::forward<T>(arg)) };
+                } else {
+                    return { std::forward<T>(arg) };
+                }
+            }
+        } // namespace detail
         /*
          * @brief Reasons for creating custom format class that holds args.
          *        1. `std::make_format_args` cannot be stored during runtime and will cause
@@ -68,7 +79,7 @@ namespace dark {
                 : m_format(std::move(fmt.get()))
             {
                 m_args.reserve(sizeof...(args));
-                (m_args.emplace_back(std::move(args)),...);
+                (m_args.emplace_back(detail::to_format_arg(std::forward<Args>(args))),...);
                 m_apply = [](std::string_view fmt, std::span<FormatterAnyArg const> args) -> std::string {
                     auto helper = []<std::size_t... Is>(
                         std::string_view fmt,
@@ -87,6 +98,10 @@ namespace dark {
 
             constexpr auto empty() const noexcept -> bool {
                 return m_format.empty();
+            }
+
+            constexpr auto number_of_args() const noexcept -> std::size_t {
+                return m_args.size();
             }
 
             constexpr operator bool() const noexcept {
