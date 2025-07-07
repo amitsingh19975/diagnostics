@@ -3,6 +3,7 @@
 
 #include "diagnostic.hpp"
 #include "../span.hpp"
+#include "../core/term/annotated_string.hpp"
 #include <array>
 
 namespace dark::builder {
@@ -66,6 +67,24 @@ namespace dark::builder {
         }
 
         /**
+         * @brief Note annotation the will displayed for the marked span.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
+        template <detail::IsSpan... Ss>
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Note,
+                term::AnnotatedString{},
+                {},
+                spans...
+            );
+            return *this;
+        }
+
+        /**
          * @brief Note annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
          * @param message The message for marked token.
          * @param spans The collection of spans
@@ -95,6 +114,22 @@ namespace dark::builder {
             annotate_helper(
                 DiagnosticLevel::Note,
                 std::move(message),
+                {},
+                spans
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Note annotation the will displayed for the marked span.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto note(
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Note,
+                term::AnnotatedString{},
                 {},
                 spans
             );
@@ -179,6 +214,24 @@ namespace dark::builder {
         }
 
         /**
+         * @brief Error annotation the will displayed for the marked span.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
+        template <detail::IsSpan... Ss>
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Error,
+                term::AnnotatedString{},
+                {},
+                spans...
+            );
+            return *this;
+        }
+
+        /**
          * @brief Error annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
          * @param message The message for marked token.
          * @param spans The collection of spans
@@ -210,6 +263,22 @@ namespace dark::builder {
             annotate_helper(
                 DiagnosticLevel::Error,
                 std::move(message),
+                {},
+                spans
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Error annotation the will displayed for the marked span.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto error(
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Error,
+                term::AnnotatedString{},
                 {},
                 spans
             );
@@ -294,6 +363,24 @@ namespace dark::builder {
         }
 
         /**
+         * @brief Help annotation the will displayed for the marked span.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
+        template <detail::IsSpan... Ss>
+        [[nodiscard("Missing `end_annotation()` call")]] auto help(
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Help,
+                term::AnnotatedString{},
+                {},
+                spans...
+            );
+            return *this;
+        }
+
+        /**
          * @brief Help annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
          * @param message The message for marked token.
          * @param spans The collection of spans
@@ -329,6 +416,21 @@ namespace dark::builder {
             return *this;
         }
 
+        /**
+         * @brief Help annotation the will displayed for the marked span.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto help(
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Help,
+                term::AnnotatedString{},
+                {},
+                spans
+            );
+            return *this;
+        }
 
         /**
          * @brief Help annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
@@ -408,6 +510,24 @@ namespace dark::builder {
         }
 
         /**
+         * @brief Warning annotation the will displayed for the marked span.
+         * @tparam Ss The varidaic pack of spans marking different tokens.
+         * @param spans The variadic argument of Span
+         */
+        template <detail::IsSpan... Ss>
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            Ss&&... spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Warning,
+                term::AnnotatedString{},
+                {},
+                spans...
+            );
+            return *this;
+        }
+
+        /**
          * @brief Warning annotation the will displayed for the marked span; otherwise rendered at the end of the diagnostics.
          * @param message The message for marked token.
          * @param spans The collection of spans
@@ -437,6 +557,22 @@ namespace dark::builder {
             annotate_helper(
                 DiagnosticLevel::Warning,
                 std::move(message),
+                {},
+                spans
+            );
+            return *this;
+        }
+
+        /**
+         * @brief Warning annotation the will displayed for the marked span.
+         * @param spans The collection of spans
+         */
+        [[nodiscard("Missing `end_annotation()` call")]] auto warn(
+            std::span<Span> spans
+        ) -> DiagnosticAnnotationBuilder {
+            annotate_helper(
+                DiagnosticLevel::Warning,
+                term::AnnotatedString{},
                 {},
                 spans
             );
