@@ -509,7 +509,7 @@ namespace dark::internal {
                 auto end = Span(first.end(), span.end());
                 auto first_marker = Span(
                     marker.start(),
-                    split_point
+                    std::min(split_point, marker.end())
                 );
                 auto last_marker = Span(first_marker.end(), marker.end());
 
