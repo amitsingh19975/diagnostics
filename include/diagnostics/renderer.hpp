@@ -25,6 +25,7 @@
 #include <print>
 #include <queue>
 #include <string_view>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -448,10 +449,10 @@ namespace dark::internal {
             return res.back();
         };
         auto& last = add_entry(line.line_number, line.line_start_offset);
-        core::SmallVec<std::size_t> insert_indices{};
+        core::SmallVec<std::size_t, 1> insertion_points;
 
         for (auto& tok: line.tokens) {
-            insert_indices.clear();
+            insertion_points.clear();
 
             // 1. Find the first match.
             std::size_t start{};
@@ -461,7 +462,10 @@ namespace dark::internal {
                 auto const& info = an.spans[start];
                 auto span = info.span;
                 if (info.level != DiagnosticLevel::Insert) continue;
-                if (tok.span().is_between(span.start())) break;
+                if (tok.span().is_between(span.start())) {
+                    insertion_points.push_back(start);
+                    break;
+                }
             }
             // 2. if match not found, we just insert the token with marker. 
             if (start == an.spans.size()) {
@@ -482,7 +486,7 @@ namespace dark::internal {
                 auto span = info.span;
                 if (!tok.span().is_between(span.start())) break;
                 if (info.level != DiagnosticLevel::Insert) continue;
-                insert_indices.push_back(start);
+                insertion_points.push_back(start);
             }
 
             // Case 1:
@@ -494,12 +498,11 @@ namespace dark::internal {
             //      |---- span 1-------|
             //         |--span 2---|
 
-            std::reverse(insert_indices.begin(), insert_indices.end());
-            while (!insert_indices.empty()) {
-                auto& top = an.spans[insert_indices.back()];
-                auto span = tok.span();
-
-                auto first = Span::from_size(span.start(), top.span.start());
+            auto span = tok.span();
+            for (auto i = 0ul; i < insertion_points.size();) {
+                auto index = insertion_points[i];
+                auto split_point = an.spans[index].span.start();
+                auto first = Span::from_size(span.start(), split_point);
                 auto end = Span(first.end(), span.end());
                 auto start_offset = (tok.marker.start() - tok.token_start_offset);
                 auto first_marker = Span::from_size(
@@ -526,10 +529,10 @@ namespace dark::internal {
                     }
                 }
 
-                while (!insert_indices.empty() && an.spans[insert_indices.back()].span.start() == top.span.start()) {
-                    auto annotation_index = insert_indices.back();
-                    top = an.spans[annotation_index];
-                    insert_indices.pop_back();
+                for (; i < insertion_points.size(); ++i) {
+                    index = insertion_points[i];
+                    auto& top = an.spans[index];
+                    if (top.span.start() != split_point) break;
 
                     if (auto it = an.tokens.find(top.diagnostic_index); it != an.tokens.end()) {
                         auto lines = std::move(it->second.lines);
@@ -548,7 +551,7 @@ namespace dark::internal {
                                             DiagnosticMarker {
                                                 .kind = MarkerKind::Insert,
                                                 .span = Span::from_size(0, text_size),
-                                                .annotation_index = static_cast<unsigned>(annotation_index)
+                                                .annotation_index = static_cast<unsigned>(index)
                                             }
                                         },
                                         .token_start_offset = tok.token_start_offset,
@@ -565,24 +568,29 @@ namespace dark::internal {
                             }
                         }
                     }
-                } 
+                }
 
                 if (!end.empty()) {
-                    last.tokens.push_back(NormalizedDiagnosticTokenInfo {
-                        .text = tok.text.substr(first.size()),
-                        .markers = {},
-                        .token_start_offset = tok.token_start_offset + first.size(),
-                        .text_color = tok.text_color,
-                        .bg_color = tok.bg_color,
-                        .bold = tok.bold,
-                        .italic = tok.italic
-                    });
-
-                    if (!last_marker.empty()) {
-                        last.tokens.back().markers.push_back({
-                            .kind = MarkerKind::Primary,
-                            .span = last_marker
+                    if (i >= insertion_points.size()) {
+                        last.tokens.push_back(NormalizedDiagnosticTokenInfo {
+                            .text = tok.text.substr(first.size()),
+                            .markers = {},
+                            .token_start_offset = tok.token_start_offset + first.size(),
+                            .text_color = tok.text_color,
+                            .bg_color = tok.bg_color,
+                            .bold = tok.bold,
+                            .italic = tok.italic
                         });
+
+                        if (!last_marker.empty()) {
+                            last.tokens.back().markers.push_back({
+                                .kind = MarkerKind::Primary,
+                                .span = last_marker
+                            });
+                        }
+                    } else {
+                        tok.text = tok.text.substr(first.size());
+                        tok.marker = last_marker;
                     }
                 }
             }
