@@ -499,17 +499,17 @@ namespace dark::internal {
             //         |--span 2---|
 
             auto span = tok.span();
+            auto marker = tok.marker;
             for (auto i = 0ul; i < insertion_points.size();) {
                 auto index = insertion_points[i];
                 auto split_point = an.spans[index].span.start();
                 auto first = Span::from_size(span.start(), split_point);
                 auto end = Span(first.end(), span.end());
-                auto start_offset = (tok.marker.start() - tok.token_start_offset);
-                auto first_marker = Span::from_size(
-                    tok.marker.start(),
-                    std::min(tok.marker.size(), std::max(first.size(), start_offset) - start_offset)
+                auto first_marker = Span(
+                    marker.start(),
+                    split_point
                 );
-                auto last_marker = Span(first_marker.end(), tok.marker.end());
+                auto last_marker = Span(first_marker.end(), marker.end());
 
                 if (!first.empty()) {
                     last.tokens.push_back(NormalizedDiagnosticTokenInfo {
@@ -590,7 +590,7 @@ namespace dark::internal {
                         }
                     } else {
                         tok.text = tok.text.substr(first.size());
-                        tok.marker = last_marker;
+                        marker = last_marker;
                     }
                 }
             }
@@ -1958,7 +1958,7 @@ namespace dark::internal {
             for (auto& g: groups) {
                 while (x_positions.contains(g.x_pos)) {
                     if (g.x_pos == min_x) break;
-                    g.x_pos = std::max(g.x_pos - 2, g.x_pos);
+                    g.x_pos = std::max(g.x_pos - 2, min_x);
                 }
 
                 x_positions.insert(g.x_pos);
