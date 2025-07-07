@@ -2820,13 +2820,11 @@ namespace dark::internal {
         for (auto i = 0ul; i < points.size();) {
             auto [marker, message, style] = points[i];
             marker.y += 2;
-            // marker.y += 1;
 
             auto graph = DiagnosticPathGraph(container);
             graph.init(canvas, marker, message, style);
             graph.build_route(canvas, marker, style, config);
 
-            // graph.debug_print();
             auto j = i + 1;
             // join all the markers using the previously drawn path.
             while (j < points.size()) {
@@ -2849,8 +2847,9 @@ namespace dark::internal {
 } // namespace dark::internal
 
 namespace dark {
+    template <typename T>
     static inline auto render_diagnostic(
-        Terminal& term,
+        Terminal<T>& term,
         Diagnostic& diag,
         DiagnosticRenderConfig const& config = {}
     ) -> void {

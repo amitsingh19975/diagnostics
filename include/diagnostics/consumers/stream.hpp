@@ -6,6 +6,7 @@
 #include "../core/term/config.hpp"
 #include "../renderer.hpp"
 #include <cassert>
+#include <cstdio>
 
 #ifdef DARK_OS_UNIX
     #include <fcntl.h>
@@ -15,7 +16,7 @@ namespace dark {
     struct StreamDiagnosticConsumer: DiagnosticConsumer {
     private:
         struct FileLock {
-            FileLock(Terminal& out)
+            FileLock(Terminal<FILE*>& out)
                 : m_handle(out.get_native_handle())
             {
                 #ifdef DARK_OS_UNIX
@@ -74,7 +75,7 @@ namespace dark {
         constexpr auto reset() noexcept -> void { m_has_printed = false; }
 
     private:
-        Terminal m_out;
+        Terminal<FILE*> m_out;
         DiagnosticRenderConfig m_config{};
         bool m_has_printed{false};
     };

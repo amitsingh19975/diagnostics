@@ -349,7 +349,8 @@ namespace dark::term {
             , m_cells(m_rows * m_cols)
         {}
 
-        auto render(Terminal& term) const noexcept -> void {
+        template <typename T>
+        auto render(Terminal<T>& term) const noexcept -> void {
             auto const& self = *this;
             for (auto i = 0ul; i <= m_max_rows_written; ++i) {
                 auto new_cols = 0ul;

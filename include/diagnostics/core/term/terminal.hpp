@@ -3,6 +3,7 @@
 
 #include "config.hpp"
 #include "color.hpp"
+#include "writer.hpp"
 #include <cstdio>
 #include <print>
 #include <tuple>
@@ -10,12 +11,15 @@
 
 namespace dark {
 
+    enum class TerminalColorMode {
+        Disable = 0,
+        Enable,
+        Auto
+    };
+
+    template <typename T>
     struct Terminal {
-        enum class ColorMode {
-            Disable = 0,
-            Enable,
-            Auto
-        };
+        using writer_t = Writer<T>;
 
         struct Style {
             bool bold{false};
@@ -32,10 +36,18 @@ namespace dark {
 
         Terminal(
             FILE* handle = stdin,
-            ColorMode mode = ColorMode::Auto
+            TerminalColorMode mode = TerminalColorMode::Auto
         ) noexcept
-            : m_handle(handle)
+            : m_writer(handle)
             , m_color_enabled(supports_color(handle, mode))
+        {}
+
+        Terminal(
+            Writer<T> writer,
+            TerminalColorMode mode = TerminalColorMode::Disable
+        ) noexcept
+            : m_writer(std::move(writer))
+            , m_color_enabled(mode == TerminalColorMode::Enable)
         {}
 
         constexpr Terminal(Terminal const&) noexcept = default;
@@ -43,22 +55,29 @@ namespace dark {
         constexpr Terminal& operator=(Terminal const&) noexcept = default;
         constexpr Terminal& operator=(Terminal &&) noexcept = default;
 
-        constexpr auto get_handle() noexcept -> FILE* {
-            return m_handle;
+        constexpr auto get_handle() noexcept -> FILE* requires (detail::WriterHasHandle<T>) {
+            return m_writer.get_handle();
         }
 
-        constexpr auto get_native_handle() noexcept -> core::term::detail::native_handle_t {
+        constexpr auto get_native_handle() noexcept -> core::term::detail::native_handle_t requires (detail::WriterHasHandle<T>) {
             return core::term::detail::get_native_handle(get_handle());
         }
 
         auto write(std::string_view str) -> Terminal& {
-            std::print(m_handle, "{}", str);
+            m_writer.write(str);
             return *this;
         }
 
         template <typename... Args>
         auto write(std::format_string<Args...> fmt, Args&&... args) -> Terminal& {
-            std::print(m_handle, fmt, std::forward<Args>(args)...);
+            if constexpr (requires {
+                { m_writer.write(fmt, std::forward<Args>(args)...) } -> std::same_as<void>;
+            }) {
+                m_writer.write(fmt, std::forward<Args>(args)...);
+            } else {
+                auto tmp = std::format(fmt, std::forward<Args>(args)...);
+                write(tmp);
+            }
             return *this;
         }
 
@@ -75,11 +94,11 @@ namespace dark {
         }
 
         auto flush() noexcept {
-            fflush(m_handle);
+            m_writer.flush();
         }
 
         auto is_displayed() const noexcept -> bool {
-            return core::term::is_displayed(m_handle);
+            return m_writer.is_displayed();
         }
 
         auto prepare_colors() noexcept -> bool {
@@ -175,7 +194,7 @@ namespace dark {
         }
 
         auto columns() noexcept -> std::size_t {
-            return core::term::get_columns(m_handle);
+            return m_writer.columns();
         }
 
         ~Terminal() noexcept {
@@ -183,13 +202,13 @@ namespace dark {
         }
 
     private:
-        static auto supports_color(FILE* handle, ColorMode mode) noexcept -> bool {
-            if (mode != ColorMode::Auto) return static_cast<bool>(mode);
+        static auto supports_color(FILE* handle, TerminalColorMode mode) noexcept -> bool {
+            if (mode != TerminalColorMode::Auto) return static_cast<bool>(mode);
             return core::term::supports_color(handle);
         }
 
     private:
-        FILE* m_handle;
+        writer_t m_writer;
         bool m_color_enabled{false};
         std::tuple<Style, Color, Color> m_current_style{
             default_style(), // style
@@ -198,6 +217,10 @@ namespace dark {
         };
     };
 
+    Terminal(
+        FILE* handle,
+        TerminalColorMode mode
+    ) noexcept -> Terminal<FILE*>;
 } // namespace dark
 
 #endif // AMT_DARK_DIAGNOSTICS_CORE_TERMINAL_HPP

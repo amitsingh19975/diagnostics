@@ -11,7 +11,7 @@ namespace dark {
         using loc_t = LocT;
         using builder_t = builder::DiagnosticBuilder<LocT>;
         virtual ~DiagnosticConverter() = default;
-        virtual auto convert_loc(LocT loc, builder_t& builder) const -> DiagnosticLocation = 0;
+        virtual auto convert_loc(loc_t loc, builder_t& builder) const -> DiagnosticLocation = 0;
     };
 } // namespace dark
 
