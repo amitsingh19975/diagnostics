@@ -500,10 +500,12 @@ namespace dark::internal {
 
             auto span = tok.span();
             auto marker = tok.marker;
+            auto text = std::move(tok.text);
+            auto token_offset = tok.token_start_offset;
             for (auto i = 0ul; i < insertion_points.size();) {
                 auto index = insertion_points[i];
                 auto split_point = an.spans[index].span.start();
-                auto first = Span::from_size(span.start(), split_point);
+                auto first = Span(span.start(), split_point);
                 auto end = Span(first.end(), span.end());
                 auto first_marker = Span(
                     marker.start(),
@@ -513,9 +515,9 @@ namespace dark::internal {
 
                 if (!first.empty()) {
                     last.tokens.push_back(NormalizedDiagnosticTokenInfo {
-                        .text = tok.text.substr(0, first.size()),
+                        .text = text.substr(0, first.size()),
                         .markers = {},
-                        .token_start_offset = tok.token_start_offset,
+                        .token_start_offset = token_offset,
                         .text_color = tok.text_color,
                         .bg_color = tok.bg_color,
                         .bold = tok.bold,
@@ -528,6 +530,8 @@ namespace dark::internal {
                         });
                     }
                 }
+
+                token_offset += first.size();
 
                 for (; i < insertion_points.size(); ++i) {
                     index = insertion_points[i];
@@ -554,7 +558,7 @@ namespace dark::internal {
                                                 .annotation_index = static_cast<unsigned>(index)
                                             }
                                         },
-                                        .token_start_offset = tok.token_start_offset,
+                                        .token_start_offset = token_offset,
                                         .text_color = itok.text_color,
                                         .bg_color = itok.bg_color,
                                         .bold = itok.bold,
@@ -573,9 +577,9 @@ namespace dark::internal {
                 if (!end.empty()) {
                     if (i >= insertion_points.size()) {
                         last.tokens.push_back(NormalizedDiagnosticTokenInfo {
-                            .text = tok.text.substr(first.size()),
+                            .text = text.substr(first.size()),
                             .markers = {},
-                            .token_start_offset = tok.token_start_offset + first.size(),
+                            .token_start_offset = token_offset,
                             .text_color = tok.text_color,
                             .bg_color = tok.bg_color,
                             .bold = tok.bold,
@@ -588,11 +592,13 @@ namespace dark::internal {
                                 .span = last_marker
                             });
                         }
+                        token_offset += end.size();
                     } else {
-                        tok.text = tok.text.substr(first.size());
-                        marker = last_marker;
+                        text = text.substr(first.size());
                     }
                 }
+                marker = last_marker;
+                span = end;
             }
         }
 
