@@ -2494,6 +2494,7 @@ namespace dark::internal {
             term::Style const& style
         ) noexcept -> void {
             std::fill(m_data.begin(), m_data.end(), NodeState::Blocked);
+            m_same_group_points.clear();
 
             for (auto y = marker.y; y < m_container.max_y(); ++y) {
                 auto x = m_container.min_x();
@@ -2524,6 +2525,7 @@ namespace dark::internal {
                         x -= 1;
                     } else if (cell.style.group_id == style.group_id) {
                         this->operator()(y, x) = NodeState::SameGroup;
+                        m_same_group_points.insert({ x, y });
                     } else if (cell.style.group_id >= GroupId::diagnostic_path) {
                         this->operator()(y, x) = NodeState::DifferentGroup;
                     }  else {
@@ -2553,6 +2555,7 @@ namespace dark::internal {
 
             for (auto p: connectors) {
                 this->operator()(p.y, p.x) = NodeState::SameGroup;
+                m_same_group_points.insert(p);
             }
         }
 
@@ -2575,7 +2578,6 @@ namespace dark::internal {
         auto build_route(
             term::Canvas& canvas,
             term::Point start,
-            std::span<term::Point> goals,
             term::Style const& style,
             DiagnosticRenderConfig const& config
         ) -> bool {
@@ -2602,15 +2604,20 @@ namespace dark::internal {
                 open_set.pop();
 
                 // canvas.draw_pixel(current.x, current.y, ".");
-                if (is_goal(goals, current)) {
+                if (is_goal(current)) {
                     core::SmallVec<term::Point, 0> pts;
                     for (auto p = current; p != start; p = path_history[p].first) {
                         pts.push_back(p);
+                        m_same_group_points.insert(p);
                         this->operator()(p.y, p.x) = NodeState::SameGroup;
                     }
                     pts.push_back(start);
+                    m_same_group_points.insert(start);
+
                     start.y -= 1;
                     pts.push_back(start);
+                    m_same_group_points.insert(start);
+
                     canvas.draw_path(pts, style);
 
                     auto arrow_style = style;
@@ -2660,7 +2667,7 @@ namespace dark::internal {
 
                     if (!cost.contains(next) || new_cost < cost[next]) {
                         cost[next] = new_cost;
-                        auto new_h = cal_heuristic(goals, next);
+                        auto new_h = cal_heuristic(next);
                         open_set.emplace(new_cost + new_h, next, new_dir);
                         path_history[next] = { current, new_dir };
                     }
@@ -2694,10 +2701,10 @@ namespace dark::internal {
             return std::find(goals.begin(), goals.end(), p) != goals.end();
         }
 
-        constexpr auto is_goal(std::span<term::Point> goals, term::Point p) const noexcept -> bool {
+        constexpr auto is_goal(term::Point p) const noexcept -> bool {
             if (p.x >= m_container.max_x() || p.y >= m_container.max_y()) return false;
             if (p.x < m_container.x || p.y < m_container.y) return false;
-            if (!goals.empty() && contains(goals, p)) return true;
+            if (m_same_group_points.contains(p)) return true;
             return this->operator()(p.y, p.x) == NodeState::SameGroup;
         }
 
@@ -2716,27 +2723,17 @@ namespace dark::internal {
             }
         }
 
-        constexpr auto cal_heuristic(std::span<term::Point> goals, term::Point p) const noexcept -> int {
+        constexpr auto cal_heuristic(term::Point p) const noexcept -> int {
             auto d = std::numeric_limits<int>::max();
-            if (!goals.empty()) {
-                for (auto g: goals) {
-                    d = std::min(d, dist(p, g));
-                }
-            } else {
-                for (auto y = m_container.min_y(); y < m_container.max_y(); ++y) {
-                    for (auto x = m_container.min_x(); x < m_container.max_x(); ++x) {
-                        if (this->operator()(y, x) != NodeState::SameGroup) {
-                            continue;
-                        }
-                        d = std::min(d, dist(p, term::Point(x, y)));
-                    }
-                }
+            for (auto [x, y]: m_same_group_points) {
+                d = std::min(d, dist(p, term::Point(x, y)));
             }
             return d;
         }
     private:
         std::vector<NodeState> m_data;
         term::BoundingBox m_container;
+        std::unordered_set<term::Point> m_same_group_points;
     };
 
     static inline auto render_path(
@@ -2827,27 +2824,7 @@ namespace dark::internal {
 
             auto graph = DiagnosticPathGraph(container);
             graph.init(canvas, marker, message, style);
-            // graph.debug_print();
-
-            std::array<term::Point, 3> message_connectors {
-                //   |--------|
-                //  >|--------|
-                //   |--------|
-                term::Point(message.min_x(), message.min_y() + message.height / 2),
-
-                //      v
-                // |---------|
-                // |---------|
-                // |---------|
-                term::Point(message.min_x() + message.width / 2, message.min_y()),
-
-                //  |--------|
-                //  |--------|<
-                //  |--------|
-                term::Point(message.max_x(), message.min_y() + message.height / 2),
-            };
-
-            graph.build_route(canvas, marker, message_connectors, style, config);
+            graph.build_route(canvas, marker, style, config);
 
             // graph.debug_print();
             auto j = i + 1;
@@ -2862,7 +2839,7 @@ namespace dark::internal {
                 marker = std::get<0>(c);
                 marker.y += 2;
 
-                graph.build_route(canvas, marker, {}, style, config);
+                graph.build_route(canvas, marker, style, config);
                 ++j;
             }
 
