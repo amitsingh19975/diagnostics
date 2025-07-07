@@ -58,7 +58,7 @@ namespace dark {
         bool italic{false};
 
         constexpr auto col(dsize_t line_start_offset) const noexcept -> dsize_t {
-            return std::max(line_start_offset, token_start_offset) - token_start_offset;
+            return token_start_offset - std::min(line_start_offset, token_start_offset);
         }
 
         // Absoulte span; starting from the source text
