@@ -2514,6 +2514,7 @@ namespace dark::internal {
                 auto x = m_container.min_x();
                 for (; x < m_container.max_x(); ++x) {
                     auto const& cell = canvas(y, x);
+                    if (cell.style.group_id >= GroupId::diagnostic_path) continue;
                     if (cell.to_string() == " " || cell.empty()) {
                         this->operator()(y, x) = NodeState::Open;
                     } else {
@@ -2550,6 +2551,7 @@ namespace dark::internal {
                 x = m_container.max_x();
                 for (; x > m_container.min_x(); --x) {
                     auto const& cell = canvas(y, x - 1);
+                    if (cell.style.group_id >= GroupId::diagnostic_path) continue;
                     if (cell.to_string() == " " || cell.empty()) {
                         this->operator()(y, x) = NodeState::Open;
                     } else {
@@ -2780,7 +2782,7 @@ namespace dark::internal {
                 bool has_intersections{false};
                 for (auto y = arrow_pt.y; y < box_pt.y; ++y) {
                     auto const& cell = canvas(y, box_pt.x);
-                    if (cell.style.group_id != 0) {
+                    if (cell.style.group_id != 0 && cell.to_string() != " ") {
                         has_intersections = true;
                         break;
                     }
