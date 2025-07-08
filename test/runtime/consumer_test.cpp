@@ -1,7 +1,8 @@
 #include "diagnostics/basic.hpp"
+#include "diagnostics/consumers/error_tracking.hpp"
+#include "diagnostics/consumers/sorting.hpp"
 #include "mock.hpp"
 #include <catch2/catch_test_macros.hpp>
-#include <sstream>
 
 using namespace dark;
 
@@ -10,20 +11,18 @@ TEST_CASE("Stream Consumer", "[stream_consumer]") {
 }
 
 TEST_CASE("Error Tracking Consumer", "[error_consumer]") {
-    auto ss = std::stringstream{};
-    auto stream = Stream(ss);
-    auto stream_consumer = BasicStreamDiagnosticConsumer<>(stream);
+    auto stream_consumer = TestConsumer();
     {
-        auto diag = BasicDiagnostic<>{
+        auto diag = Diagnostic{
             DiagnosticLevel::Error,
-            core::Formatter("TEst {}", 3),
+            core::BasicFormatter("TEst {}", 3),
             DiagnosticLocation {
                 .filename = "tst.cpp",
-                .source = BasicDiagnosticLocationItem {}
+                .source = {}
             }
         };
 
-        auto consumer = BasicErrorTrackingDiagnosticConsumer<>(&stream_consumer);
+        auto consumer = ErrorTrackingDiagnosticConsumer(&stream_consumer);
         REQUIRE(consumer.seen_error() == false);
 
         consumer.consume(std::move(diag));
@@ -34,16 +33,16 @@ TEST_CASE("Error Tracking Consumer", "[error_consumer]") {
     }
 
     {
-        auto diag = BasicDiagnostic<>{
+        auto diag = Diagnostic{
             DiagnosticLevel::Warning,
-            core::Formatter("TEst {}", 3),
+            core::BasicFormatter("TEst {}", 3),
             DiagnosticLocation {
                 .filename = "tst.cpp",
-                .source = BasicDiagnosticLocationItem {}
+                .source = {}
             }
         };
 
-        auto consumer = BasicErrorTrackingDiagnosticConsumer<>(&stream_consumer);
+        auto consumer = ErrorTrackingDiagnosticConsumer(&stream_consumer);
         REQUIRE(consumer.seen_error() == false);
 
         consumer.consume(std::move(diag));
@@ -56,136 +55,137 @@ TEST_CASE("Error Tracking Consumer", "[error_consumer]") {
 
 
 TEST_CASE("Sorting Consumer", "[sorting_consumer]") {
-    auto mock_consumer = MockConsumer();
+    auto mock_consumer = TestConsumer();
 
     {
-        auto diag1 = BasicDiagnostic<DiagnosticKind>{
-            DiagnosticKind::InvalidFunctionDefinition,
-            DiagnosticLevel::Error,
-            core::Formatter("TEst {}", 3),
-            DiagnosticLocation {
+        auto diag1 = Diagnostic{
+            .level = DiagnosticLevel::Error,
+            .kind = DiagnosticKind::InvalidFunctionDefinition,
+            .location = DiagnosticLocation {
                 .filename = "b.cpp",
-                .source = BasicDiagnosticLocationItem {
-                    .source = "",
-                    .line_number = 1,
-                    .column_number = 2
-                }
-            }
+                .source = DiagnosticSourceLocationTokens::builder()
+                    .begin_line(1, 0)
+                        .add_token("void", 10, Span(10, 13))
+                    .end_line()
+                    .build()
+            },
+            .message = core::BasicFormatter("TEst {}", 3)
         };
 
-        auto diag2 = BasicDiagnostic<DiagnosticKind>{
-            DiagnosticKind::InvalidFunctionDefinition,
-            DiagnosticLevel::Error,
-            core::Formatter("TEst {}", 3),
-            DiagnosticLocation {
+        auto diag2 = Diagnostic{
+            .level = DiagnosticLevel::Error,
+            .kind = DiagnosticKind::InvalidFunctionDefinition,
+            .location = DiagnosticLocation {
                 .filename = "a.cpp",
-                .source = BasicDiagnosticLocationItem {
-                    .source = "",
-                    .line_number = 1,
-                    .column_number = 2
-                }
-            }
+                .source = DiagnosticSourceLocationTokens::builder()
+                    .begin_line(1, 0)
+                        .add_token("void", 10, Span(10, 13))
+                    .end_line()
+                    .build()
+            },
+            .message = core::BasicFormatter("TEst {}", 3)
         };
 
-        auto consumer = BasicSortingDiagnosticConsumer<DiagnosticKind>(&mock_consumer);
+        auto consumer = SortingDiagnosticConsumer(&mock_consumer);
         consumer.consume(std::move(diag1));
         consumer.consume(std::move(diag2));
 
-        REQUIRE(mock_consumer.diags.empty() == true);
+        REQUIRE(mock_consumer.diagnostics.empty() == true);
 
         consumer.flush();
 
-        REQUIRE(mock_consumer.diags.size() == 2);
-        REQUIRE(mock_consumer.diags[0].location.filename == "a.cpp");
-        REQUIRE(mock_consumer.diags[1].location.filename == "b.cpp");
+        REQUIRE(mock_consumer.diagnostics.size() == 2);
+        REQUIRE(mock_consumer.diagnostics[0].location.filename == "a.cpp");
+        REQUIRE(mock_consumer.diagnostics[1].location.filename == "b.cpp");
 
         mock_consumer.clear();
     }
 
     {
-        auto diag1 = BasicDiagnostic<DiagnosticKind>{
-            DiagnosticKind::InvalidFunctionDefinition,
-            DiagnosticLevel::Error,
-            core::Formatter("TEst {}", 3),
-            DiagnosticLocation {
+        auto diag1 = Diagnostic{
+            .level = DiagnosticLevel::Error,
+            .kind = DiagnosticKind::InvalidFunctionDefinition,
+            .location = DiagnosticLocation {
                 .filename = "a.cpp",
-                .source = BasicDiagnosticLocationItem {
-                    .source = "",
-                    .line_number = 2,
-                    .column_number = 2
-                }
-            }
+                .source = DiagnosticSourceLocationTokens::builder()
+                    .begin_line(2, 0)
+                        .add_token("void", 10, Span(10, 13))
+                    .end_line()
+                    .build()
+            },
+            .message = core::BasicFormatter("TEst {}", 3)
         };
 
-        auto diag2 = BasicDiagnostic<DiagnosticKind>{
-            DiagnosticKind::InvalidFunctionDefinition,
-            DiagnosticLevel::Error,
-            core::Formatter("TEst {}", 3),
-            DiagnosticLocation {
+        auto diag2 = Diagnostic{
+            .level = DiagnosticLevel::Error,
+            .kind = DiagnosticKind::InvalidFunctionDefinition,
+            .location = DiagnosticLocation {
                 .filename = "a.cpp",
-                .source = BasicDiagnosticLocationItem {
-                    .source = "",
-                    .line_number = 1,
-                    .column_number = 2
-                }
-            }
+                .source = DiagnosticSourceLocationTokens::builder()
+                    .begin_line(1, 0)
+                        .add_token("void", 10, Span(10, 13))
+                    .end_line()
+                    .build()
+            },
+            .message = core::BasicFormatter("TEst {}", 3)
         };
 
-        auto consumer = BasicSortingDiagnosticConsumer<DiagnosticKind>(&mock_consumer);
+        auto consumer = SortingDiagnosticConsumer(&mock_consumer);
         consumer.consume(std::move(diag1));
         consumer.consume(std::move(diag2));
 
-        REQUIRE(mock_consumer.diags.empty() == true);
+        REQUIRE(mock_consumer.diagnostics.empty() == true);
 
         consumer.flush();
 
-        REQUIRE(mock_consumer.diags.size() == 2);
-        REQUIRE(mock_consumer.diags[0].location.get_as_location_item().line_number == 1);
-        REQUIRE(mock_consumer.diags[1].location.get_as_location_item().line_number == 2);
+        REQUIRE(mock_consumer.diagnostics.size() == 2);
+        REQUIRE(mock_consumer.diagnostics[0].location.line_info().first == 1);
+        REQUIRE(mock_consumer.diagnostics[1].location.line_info().first == 2);
 
         mock_consumer.clear();
     }
 
     {
-        auto diag1 = BasicDiagnostic<DiagnosticKind>{
-            DiagnosticKind::InvalidFunctionDefinition,
-            DiagnosticLevel::Error,
-            core::Formatter("TEst {}", 3),
-            DiagnosticLocation {
+        auto diag1 = Diagnostic{
+            .level = DiagnosticLevel::Error,
+            .kind = DiagnosticKind::InvalidFunctionDefinition,
+            .location = DiagnosticLocation {
                 .filename = "a.cpp",
-                .source = BasicDiagnosticLocationItem {
-                    .source = "",
-                    .line_number = 1,
-                    .column_number = 4
-                }
-            }
+                .source = DiagnosticSourceLocationTokens::builder()
+                    .begin_line(1, 0)
+                        .add_token("void", 10, Span(10, 13))
+                    .end_line()
+                    .build()
+            },
+            .message = core::BasicFormatter("TEst {}", 3)
         };
 
-        auto diag2 = BasicDiagnostic<DiagnosticKind>{
-            DiagnosticKind::InvalidFunctionDefinition,
-            DiagnosticLevel::Error,
-            core::Formatter("TEst {}", 3),
-            DiagnosticLocation {
+        auto diag2 = Diagnostic{
+            .level = DiagnosticLevel::Error,
+            .kind = DiagnosticKind::InvalidFunctionDefinition,
+            .location = DiagnosticLocation {
                 .filename = "a.cpp",
-                .source = BasicDiagnosticLocationItem {
-                    .source = "",
-                    .line_number = 1,
-                    .column_number = 2
-                }
-            }
+                .source = DiagnosticSourceLocationTokens::builder()
+                    .begin_line(1, 0)
+                        .add_token("void", 5, Span(5, 8))
+                    .end_line()
+                    .build()
+            },
+            .message = core::BasicFormatter("TEst {}", 3)
         };
 
-        auto consumer = BasicSortingDiagnosticConsumer<DiagnosticKind>(&mock_consumer);
+
+        auto consumer = SortingDiagnosticConsumer(&mock_consumer);
         consumer.consume(std::move(diag1));
         consumer.consume(std::move(diag2));
 
-        REQUIRE(mock_consumer.diags.empty() == true);
+        REQUIRE(mock_consumer.diagnostics.empty() == true);
 
         consumer.flush();
 
-        REQUIRE(mock_consumer.diags.size() == 2);
-        REQUIRE(mock_consumer.diags[0].location.get_as_location_item().column_number == 2);
-        REQUIRE(mock_consumer.diags[1].location.get_as_location_item().column_number == 4);
+        REQUIRE(mock_consumer.diagnostics.size() == 2);
+        REQUIRE(mock_consumer.diagnostics[0].location.line_info().second == 6);
+        REQUIRE(mock_consumer.diagnostics[1].location.line_info().second == 11);
 
         mock_consumer.clear();
     }
