@@ -754,7 +754,7 @@ namespace dark::internal {
                     }
 
                     // Whole token text is marked.
-                    if (text.size() == end - start) {
+                    if (text.size() == end - start || text.empty()) {
                         l.tokens.push_back(std::move(token));
                         previous_start = text.size();
                         break;
@@ -772,8 +772,10 @@ namespace dark::internal {
 
                     if (start != previous_start) {
                         auto size = (start - previous_start);
+                        auto txt = token.text.substr(previous_start, size);
+                        size = std::min(size, txt.size());
                         l.tokens.push_back(NormalizedDiagnosticTokenInfo {
-                            .text = token.text.substr(previous_start, size),
+                            .text = std::move(txt),
                             .markers = {},
                             .token_start_offset = token.token_start_offset,
                             .text_color = token.text_color,
@@ -786,8 +788,10 @@ namespace dark::internal {
 
                     auto size = (end - start);
                     if (size != 0) {
+                        auto txt = token.text.substr(start, size);
+                        size = std::min(size, static_cast<unsigned>(txt.size()));
                         l.tokens.push_back(NormalizedDiagnosticTokenInfo {
-                            .text = token.text.substr(start, size),
+                            .text = std::move(txt),
                             .markers = std::move(markers),
                             .token_start_offset = token.token_start_offset,
                             .text_color = token.text_color,
