@@ -68,6 +68,7 @@ namespace dark {
         auto consume(Diagnostic&& d) -> void override {
             FileLock lock(m_out);
             render_diagnostic(m_out, d, m_config);
+            m_out.write("\n");
         }
 
         auto flush() -> void override { m_out.flush(); }
