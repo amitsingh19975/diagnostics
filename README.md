@@ -6,26 +6,20 @@ A diagnostic library for printing compiler diagnostics.
 - The diagnostic architecture is based on [Google's Carbon Language](https://github.com/carbon-language/carbon-lang) diagnostic implementation, but not the exact implementation.
 - `CowString` is inspired by Rust's `Cow` implementation.
 - The error reporting or rendering on the terminal is closer to the Rust's.
-- `Stream` has similar interface to llvm's `raw_ostream` with extensions.
 
 # Basic Concepts
 
 ## 1. Span
-- `Span` is an absolute position inside the source string. This does not accept signed positions.
-- `LocRelSpan` is a relative position that represent a subsection of the source that will be print by the diagnostic. It is similar to `Span` if the subsection is same as the whole source. This does not accept signed positions.
-- `MarkerRelSpan` represent position relative to marker, which could be a negative offset.
+- `Span` is an absolute position within the source string. This does not accept signed positions. The range is `[0, max(dsize_t)]`. The default type alias for `dsize_t` is `unsigned`, but if you don't wnat it, you can define the macro `DARK_DIAGNOSTICS_SIZE_TYPE` before the header.
+
+For example:
+```cpp
+#define DARK_DIAGNOSTICS_SIZE_TYPE std::size_t
+#include <diagnostics.hpp>
 
 ```
-Source: |xxxxxxxxxxxxxxx|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|xxxxxxxxxxx|
-        ^		|		                        |
-        |		|	    			        |
-        Span		|xxxxxxxxxxxxxxxxxx^^^^^xxxxxxxxxxxxxxxx|
-                        ^                  ^
-                        |                  |
-                        LocRelSpan         MarkerRelSpan
-```
 
-## 2. Context
+## 2. Annotation/Context
 This provides more information to the current diagnostic that will be rendered below the marked span.
 
 ```
@@ -36,49 +30,21 @@ Source: |xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|
                                 |- This is a second error.
 ```
 
-## 3. Sub-Diagnostic
-This helps the user to add multiple sub-diagnostics that is related to the current parent diagnostics; such as adding history or backtrace to the current diagnostic.
-
-## 4. Token Diagnostic Location
-This is a type of location that allows the user to pass individual tokens with custom styles (color and bold). It does not allow escape characters, and they'll be escaped.
-
-## 5. Basic Diagnostic Location
+## 3. Diagnostic Location
 This is a single string source that supports newlines and could be split into multiple lines or skipped if it has too many lines that don't have diagnostic.
 
-## 6. Diagnostic Converter
-This is a custom struct or class that inherits from the `BasicDiagnosticConverter<LocT, DiagnosticKind>`. It allows the user to customise or build diagnostic location to the diagnostic builder.
+## 4. Diagnostic Converter
+This is a custom struct or class that inherits from the `DiagnosticConverter<LocT>`. It allows the user to customise or build diagnostic location to the diagnostic builder.
 
-## 7. Consumer
+## 5. Consumer
 This an object that consumes the diagnostics, which could a consumer that prints the diagnostics on the terminal or sorts the consumers. These consumers can be plugged into each other; such as plugging sort and stream consumers, which will sort first then print it on the terminal.
 There are three predefined consumers:
-- `BasicStreamDiagnosticConsumer<DiagnosticKind>` This outputs the diagnostic to the `Stream`
-- `BasicErrorTrackingDiagnosticConsumer<DiagnosticKind>` This tracks the error. If it encounters error, the error flag will be turned on.
-- `BasicSortingDiagnosticConsumer<DiagnosticKind>` This sorts the diagnostics and needs a explicit flush.
-## 8. Stream
-This is an object that wraps standard out file descriptor, `std::ostream`, or `llvm::raw_ostream` (if `DARK_LLVM_OS_STREAM` is defined). This has almost similar interface to llvm's `raw_ostream` like `change_color` , `reset_color`, `Color` (enum)
-```cpp
-#include <diagnostics.hpp>
-int main() {
-	dark::out().change_color(dark::Stream::RED) << "Hello";
-	dark::out().change_color(dark::Stream::Color::GREEN, { .bold = true }) << " World";
-	dark::out().reset_color();
-}
-```
+- `StreamDiagnosticConsumer` This outputs the diagnostic to the `FILE*` (`stderr`, `stdout`, or file)
+- `ErrorTrackingDiagnosticConsumer` This tracks the error. If it encounters error, the error flag will be turned on.
+- `SortingDiagnosticConsumer` This sorts the diagnostics and needs a explicit flush.
 
-## 9. Format String
-This uses `std::format` under the hood. Therefore, any valid format string is a valid string. However, the user can specify data types that will be checked at compile-time.
-Valid type specifier:
-- `c` for char
-- `s` for string that could be both dynamic or static that will be stored inside the `CowString`
-- `u8`, `u16`, `u32`, and `u64`
-- `i8`, `i16`, `i32`, and `i64`
-- `f32` and `f64`
-- no type indicates any
-
-```
-"This is {s} with {}" // valid
-"This is {u32:<20} with {}" // valid
-"This is {0} with {}" // invalid
+## 6. Format String
+This uses the `std::format` under the hood so you can use every options that it uses.
 ```
 
 # How to use
@@ -110,26 +76,25 @@ cc -Irepo_path/diagnostics/include my_program
 ```cpp
 #include <diagnostics.hpp>
 
-enum class DiagnosticKind {
-    InvalidFunctionDefinition,
-    InvalidFunctionPrototype
+using namespace dark;
+
+struct DiagnosticKind {
+    static constexpr std::size_t InvalidFunctionDefinition = 1;
+    static constexpr std::size_t InvalidFunctionPrototype = 2;
 };
 
-/*
-* 1. line number and column number are 1-based so if the user gives 0 then the location will not be printed.
-*/
-struct SimpleConverter: BasicDiagnosticConverter<unsigned, DiagnosticKind> {
-    auto convert_loc(unsigned loc, [[maybe_unused]] builder_t builder) const -> dark::DiagnosticLocation override {
-        return dark::DiagnosticLocation {
-            .filename = "test.cpp",
-            .source = dark::BasicDiagnosticLocationItem {
-                .source = "void test( int a, int c );", // Subsection
-                .line_number = 1, // Line where the marker starts.
-                .column_number = loc + 1, // Column where the marker starts
-                .source_location = 0, // This is an absolute position inside the original source.
-                .length = 2 // Length of the diagnostic marker
-            }
-        };
+struct TestConverter: DiagnosticConverter<unsigned> {
+    std::string_view source;
+    std::string_view filename;
+    auto convert_loc(unsigned loc, builder_t&) const -> DiagnosticLocation override {
+        return DiagnosticLocation::from_text(
+            filename,
+            source,
+            /*line_number=*/1,
+            /*line_start_offset=*/loc,
+            /*token_start_offset=*/loc,
+            /*marker=*/Span::from_size(0, 5)
+        );
     }
 };
 
@@ -138,44 +103,44 @@ struct SimpleConverter: BasicDiagnosticConverter<unsigned, DiagnosticKind> {
 ## Using The Diagnostic Builder
 ```cpp
 int main() {
-	auto consumer = dark::BasicStreamDiagnosticConsumer<DiagnosticKind>(dark::out());
-    auto converter = SimpleConverter();
-    auto emitter = dark::BasicDiagnosticEmitter(
-        converter,
+    auto consumer = ConsoleDiagnosticConsumer();
+    auto converter = TokenConverter("void test( int a, int c );", "test.cpp");
+    auto emitter = dark::DiagnosticEmitter(
+        &converter,
         consumer
     );
 
-    static constexpr auto InvalidFunctionDefinition = dark_make_diagnostic_with_kind(
+    static constexpr auto InvalidFunctionDefinition = dark_make_diagnostic(
         DiagnosticKind::InvalidFunctionDefinition,
-        "Invalid function definition for {s} at {u32}"
+        "Invalid function definition for {} at {}",
+        char const*, std::uint32_t
     );
 
-    static constexpr auto InvalidFunctionPrototype = dark_make_diagnostic_with_kind(
+    static constexpr auto InvalidFunctionPrototype = dark_make_diagnostic(
         DiagnosticKind::InvalidFunctionPrototype,
         "The prototype is defined here"
     );
 
     emitter
-        .error(1, InvalidFunctionDefinition, "Test", 0u)
-        .context(
-            dark::DiagnosticContext()
+        .error(Span(0, 3), InvalidFunctionDefinition, "Test", 0u)
+            .begin_annotation()
                 .insert(")", 2)
-                .insert_marker_rel(")", 3)
-                .del(dark::MarkerRelSpan(4, 8))
+                .remove(Span(4, 8))
                 .error(
                     "prototype does not match the defination",
-                    dark::LocRelSpan(0, 2),
-                    dark::Span(19, 24)
+                    Span(0, 2),
+                    Span(19, 24)
                 )
-                .warn(dark::Span(6, 10), dark::Span(25, 27))
+                .warn(Span(6, 10), Span(25, 27))
                 .note("Try to fix the error")
-        )
-        .sub_diagnostic()
-            .warn(0, InvalidFunctionPrototype)
-        .build()
+            .end_annotation()
         .emit();
 
+    emitter
+        .error(Span::from_size(5, 2), InvalidFunctionPrototype)
+        .emit();
 
+    return 0;
 }
 ```
 
