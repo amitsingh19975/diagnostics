@@ -1,8 +1,10 @@
+#include "catch2/catch_message.hpp"
 #include "diagnostics/basic.hpp"
 #include "mock.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
 #include <memory>
+#include <vector>
 
 using namespace dark;
 
@@ -259,63 +261,103 @@ R"(void test( int a,
         REQUIRE(iter.empty());
     }
 }
-//
-// TEST_CASE("Tokenized Diagnostic Builder Output", "[tokenized_diagnostic:single_line:output]") {
-//     {
-//         auto mock = Mock<TokenConverter>(); 
-//
-//         constexpr auto InvalidFunctionDefinition = dark_make_diagnostic_with_kind(
-//             DiagnosticKind::InvalidFunctionDefinition,
-//             "Invalid function definition for {s} at {u32}"
-//         );
-//
-//         constexpr auto InvalidFunctionPrototype = dark_make_diagnostic_with_kind(
-//             DiagnosticKind::InvalidFunctionPrototype,
-//             "The prototype is defined here"
-//         );
-//
-//         auto& emitter = mock.emitter;
-//         emitter
-//             .error({1, 1}, InvalidFunctionDefinition, "Test", 0u)
-//             .context(
-//                 dark::DiagnosticContext()
-//                     .insert(")", 2)
-//                     .insert_marker_rel(")", 3)
-//                     .del(dark::MarkerRelSpan(4, 8))
-//                     .error(
-//                         "prototype does not match the defination",
-//                         dark::Span(0, 2),
-//                         dark::Span(19, 24)
-//                     )
-//                     .warn(dark::Span(6, 10), dark::Span(25, 27))
-//                     .note("Try to fix the error")
-//             )
-//             .sub_diagnostic()
-//                 .warn({0, 1}, InvalidFunctionPrototype)
-//             .build()
-//             .emit();
-//
-//         auto& consumer = mock.consumer;
-//         REQUIRE(consumer.diags.size() == 1);
-//
-//         auto iter = mock.as_line_iter();
-//         REQUIRE(!iter.empty());
-//         REQUIRE(iter.next() == "error: Invalid function definition for Test at 0");
-//         REQUIRE(iter.next() == "   --> test.cpp:2:2");
-//         REQUIRE(iter.next() == "  2 |  i)nt )test ( int a , int b )");
-//         REQUIRE(iter.next() == "    : ^^+  -+---           ^~~~~ ~~");
-//         REQUIRE(iter.next() == "    : |    ~ ~~~~~         |");
-//         REQUIRE(iter.next() == "    : |                    |");
-//         REQUIRE(iter.next() == "    : |-------------------------prototype does not match the defination");
-//         REQUIRE(iter.next() == "    :");
-//         REQUIRE(iter.next() == "    = note: Try to fix the error");
-//         REQUIRE(iter.next() == "warning: The prototype is defined here");
-//         REQUIRE(iter.next() == "   --> test.cpp:1:2");
-//         REQUIRE(iter.next() == "  1 |  int test ( int a , int b )");
-//         REQUIRE(iter.next() == "    : ^^");
-//         REQUIRE(iter.next() == "    :");
-//         REQUIRE(iter.next() == "");
-//         REQUIRE(iter.next() == "");
-//         REQUIRE(iter.empty());
-//     }
-// }
+
+TEST_CASE("Tokenized Diagnostic Builder Output", "[tokenized_diagnostic:output]") {
+    {
+        auto converter = std::make_unique<TokenConverter>(
+            "void test( int a, int c );",
+            "main.cpp"
+        );
+        auto mock = Mock(converter.get());
+        std::vector<std::string_view> tokens {
+            "void",
+            " ",
+            "test",
+            "(",
+            " ",
+            "int",
+            " ",
+            "a",
+            ",",
+            " ",
+            "int",
+            " ",
+            "c",
+            " ",
+            ")",
+            ";"
+        };
+
+        {
+            auto const& ts = converter->tokens;
+            REQUIRE(ts.size() == tokens.size());
+            for (auto t = 0ul; t < ts.size(); ++t) {
+                auto lhs = ts[t].text(converter->source);
+                auto rhs = tokens[t];
+                INFO(std::format("[{}]: {} == {}", t, lhs, rhs));
+                REQUIRE(lhs == rhs);
+            }
+        }
+
+        constexpr auto InvalidFunctionPrototype = dark_make_diagnostic(
+            DiagnosticKind::InvalidFunctionPrototype,
+            "The prototype is defined here"
+        );
+
+        auto& emitter = mock.emitter;
+        emitter
+            .warn(Span(0, 3), InvalidFunctionPrototype)
+            .begin_annotation()
+                .insert(")", 2)
+                .remove(Span(4, 8))
+                .error(
+                    "prototype does not match the defination",
+                    Span(0, 2),
+                    Span(19, 24)
+                )
+                .warn(Span(6, 10), Span(25, 27))
+                .note("Try to fix the error")
+            .end_annotation()
+            .emit();
+
+        auto& consumer = mock.consumer;
+        REQUIRE(consumer.diagnostics.size() == 1);
+        mock.render_diagnostic();
+
+        auto const& diag = consumer.diagnostics[0];
+
+        auto const& source = diag.location.source;
+
+        REQUIRE(diag.level == DiagnosticLevel::Warning);
+        REQUIRE(diag.kind == DiagnosticKind::InvalidFunctionPrototype);
+        REQUIRE(diag.message.format().to_borrowed() == "The prototype is defined here");
+        REQUIRE(diag.location.line_info() == std::make_pair(1, 1));
+        REQUIRE(diag.annotations.size() == 5);
+
+        REQUIRE(source.lines.size() == 1);
+        REQUIRE(source.lines[0].tokens.size() == tokens.size());
+
+        auto iter = mock.line_iter();
+
+        REQUIRE(!iter.empty());
+        REQUIRE(iter.next() == "Warning[W0002]: The prototype is defined here");
+        REQUIRE(iter.next() == "     ╭─[main.cpp:1:1]");
+        REQUIRE(iter.next() == "     │");
+        REQUIRE(iter.next() == "   1 |  vo)id test( int a, int c );");
+        REQUIRE(iter.next() == "     ┆  ^^+^ xxxx ~         ~~~~~ ~");
+        REQUIRE(iter.next() == "     ┆  ▲      ~~~          ▲");
+        REQUIRE(iter.next() == "     ┆  ├───────────────────╯");
+        REQUIRE(iter.next() == "     ┆  │");
+        REQUIRE(iter.next() == "     │  │");
+        REQUIRE(iter.next() == "     │  │");
+        REQUIRE(iter.next() == "     │  │         ╭─ Error ────────────────────────╮");
+        REQUIRE(iter.next() == "     │  ╰─────────┤ prototype does not match the   │");
+        REQUIRE(iter.next() == "     │            │ defination                     │");
+        REQUIRE(iter.next() == "     │            ╰────────────────────────────────╯");
+        REQUIRE(iter.next() == "     │");
+        REQUIRE(iter.next() == "     │ ╭─ Note ──────────────────╮");
+        REQUIRE(iter.next() == "     ╰─┤  Try to fix the error   │");
+        REQUIRE(iter.next() == "       ╰─────────────────────────╯");
+        REQUIRE(iter.empty());
+    }
+}
