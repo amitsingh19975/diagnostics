@@ -25,7 +25,6 @@
 #include <print>
 #include <queue>
 #include <string_view>
-#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -189,7 +188,7 @@ namespace dark::internal {
 
             // 4. Store spans with ids and filter out out-of-bound spans
             for (auto span: annotation.spans) {
-                if (!source_span.is_between(span, true)) continue;
+                if (!source_span.intersects(span, true)) continue;
                 inside_source_span = true;
 
                 if (span.empty()) {
@@ -202,7 +201,7 @@ namespace dark::internal {
                     .message_index = message_id,
                     .diagnostic_index = i,
                     .level = annotation.level,
-                    .span = span
+                    .span = Span(span.start(), std::min(span.end(), source_span.end()))
                 });
             }
 
@@ -605,6 +604,12 @@ namespace dark::internal {
         for (auto& l: res) {
             for (auto i = 0ul; i < l.tokens.size(); ++i) {
                 auto& el = l.tokens[i];
+                // std::println("TOKEN: {}", el.text.to_borrowed());
+                // std::print("\t[");
+                // for (auto const& m: el.markers) {
+                //     std::print("{}, ", m.span);
+                // }
+                // std::println("]");
                 auto span = el.span();
                 if (el.is_artificial) continue;
                 // Find the intersection spans
@@ -812,6 +817,11 @@ namespace dark::internal {
             // for (auto t = 0ul; t < l.tokens.size(); ++t) {
             //     auto& token = l.tokens[t];
             //     std::println("HERE: '{}' | {}\n", token.text.to_borrowed(), token.markers.size());
+            //     std::print("\t[");
+            //     for (auto const& m: token.markers) {
+            //         std::print("{}, ", m.span);
+            //     }
+            //     std::println("]");
             // }
         }
 
