@@ -414,7 +414,7 @@ namespace dark::term {
             dsize_t x,
             dsize_t y,
             std::string_view ch,
-            Style style = {}
+            Style const& style = {}
         ) noexcept {
             if (x >= cols()) return;
             while (y >= rows()) {
@@ -423,13 +423,12 @@ namespace dark::term {
 
             m_max_rows_written = std::max(m_max_rows_written, y);
 
-            auto cell = Cell{
-                .style = style
-            };
             auto& current = this->operator()(y, x);
             if (current.style.z_index > style.z_index) return;
-            cell.write(ch);
-            current = cell;
+            current = Cell{
+                .style = style
+            };
+            current.write(ch);
         }
 
         // INFO: Draws rectangular paths; no diagonals
@@ -445,7 +444,7 @@ namespace dark::term {
             dsize_t y1,
             dsize_t x2,
             dsize_t y2,
-            Style style = {},
+            Style const& style = {},
             bool top_bias = false,
             LineCharSet normal_set = char_set::line::rounded,
             LineCharSet bold_set = char_set::line::rounded_bold
@@ -581,7 +580,7 @@ namespace dark::term {
 
         constexpr auto draw_path(
             std::span<Point> path,
-            Style style = {},
+            Style const& style = {},
             LineCharSet normal_set = char_set::line::rounded,
             LineCharSet bold_set = char_set::line::rounded_bold
         ) noexcept -> BoundingBox {
@@ -590,7 +589,7 @@ namespace dark::term {
 
             if (path.size() == 1) {
                 auto el = path[0];
-                draw_pixel(el.x, el.y, set.cross);
+                draw_pixel(el.x, el.y, set.cross, style);
                 return {
                     .x = el.x,
                     .y = el.y,
@@ -621,7 +620,7 @@ namespace dark::term {
             auto size = path.size();
             core::SmallVec<std::pair<Point, std::string_view>, 32> corners;
 
-            auto helper = [this, norm, set, &corners, style, normal_set, bold_set](
+            auto helper = [this, norm, set, &corners, &style, normal_set, bold_set](
                 Point p0,
                 Point p1,
                 Point p2
