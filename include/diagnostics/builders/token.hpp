@@ -74,13 +74,7 @@ namespace dark::builder {
         constexpr DiagnosticLineTokenBuilder& operator=(DiagnosticLineTokenBuilder const&) noexcept = default;
         constexpr DiagnosticLineTokenBuilder& operator=(DiagnosticLineTokenBuilder &&) noexcept = default;
 
-        #ifndef NDEBUG
-        ~DiagnosticLineTokenBuilder() noexcept {
-            assert(m_has_ended && "`end_line` is missing after call of `begin_line`");
-        }
-        #else
-        ~DiagnosticLineTokenBuilder() noexcept = default;
-        #endif
+        constexpr ~DiagnosticLineTokenBuilder() noexcept = default;
 
         /**
          * @brief Adds a new line for tokens.
