@@ -196,7 +196,7 @@ namespace dark {
                 for (auto const& tok: line.tokens) {
                     if (tok.marker.empty()) continue;
                     auto col = tok.col(line.line_start_offset);
-                    return { line.line_number, col == 0 ? 0 : (col + 1) };
+                    return { line.line_number, col + 1 };
                 }
             }
             return { 0, 0 };
