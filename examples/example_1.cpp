@@ -1,128 +1,184 @@
+#include <cstdint>
 #include <cstdio>
+#include <string_view>
 #include "diagnostics.hpp"
+#include "diagnostics/consumers/stream.hpp"
+#include "diagnostics/emitter.hpp"
 
-enum class DiagnosticKind {
-    InvalidFunctionDefinition,
-    InvalidFunctionPrototype
+using namespace dark;
+
+struct DiagnosticKind {
+    static constexpr std::size_t InvalidFunctionDefinition = 1;
+    static constexpr std::size_t InvalidFunctionPrototype = 2;
 };
 
-template <typename LocT>
-using DiagnosticConverter = dark::BasicDiagnosticConverter<LocT, DiagnosticKind>;
-
-struct Info {
-    unsigned line{};
-    unsigned col{};
-};
-
-struct SimpleConverter: DiagnosticConverter<Info> {
-
-    enum class TokenKind {
-        Identifier,
-        Keyword,
-        Puncutation,
+struct TokenConverter: DiagnosticConverter<Span> {
+private:
+    struct Info {
+        dsize_t line_number{};
+        dsize_t line_offset{};
     };
 
-    auto get_token(TokenKind kind, dark::core::CowString text, unsigned offset) const {
-        switch (kind) {
-            case TokenKind::Keyword:  return dark::BasicDiagnosticTokenItem {
-                .token = std::move(text),
-                .column_number = offset,
-                .color = dark::Stream::GREEN,
-                .is_bold = true
-            };
-            case TokenKind::Identifier:  return dark::BasicDiagnosticTokenItem {
-                .token = std::move(text),
-                .column_number = offset,
-            };
-            case TokenKind::Puncutation:  return dark::BasicDiagnosticTokenItem {
-                .token = std::move(text),
-                .column_number = offset,
-                .color = dark::Stream::BLUE,
-                .is_bold = true
+    struct Token {
+        Span span;
+        Color text_color{Color::Default};
+        Color bg_color{Color::Default};
+        bool bold{false};
+        bool italic{false};
+
+        static constexpr auto keyword(Span span) noexcept -> Token {
+            return {
+                .span = span,
+                .text_color = Color::Blue,
+                .bold = true
             };
         }
+
+        static constexpr auto identifier(Span span) noexcept -> Token {
+            return {
+                .span = span,
+                .text_color = Color(/*r=*/183, /*g=*/74, /*b=*/174)
+            };
+        }
+
+        static constexpr auto punctuation(Span span) noexcept -> Token {
+            return {
+                .span = span,
+                .text_color = Color::Green,
+                .bold = true
+            };
+        }
+
+        static constexpr auto whitespace(Span span) noexcept -> Token {
+            return {
+                .span = span,
+            };
+        }
+
+        constexpr auto text(std::string_view src) const noexcept -> std::string_view {
+            return src.substr(span.start(), span.size());
+        }
+    };
+
+public:
+    std::string_view source;
+    std::string_view filename;
+    std::vector<Token> tokens;
+
+    TokenConverter(std::string_view source, std::string_view filename)
+        : source(source)
+        , filename(filename)
+        , tokens(parse_tokens())
+    {}
+
+    auto convert_loc(loc_t loc, builder_t& /*builder*/) const -> DiagnosticLocation override {
+        auto tks = DiagnosticSourceLocationTokens::builder();
+        auto line_number = 1u;
+        auto line_offset = 0u;
+        auto builder = tks.begin_line(line_number, line_offset);
+        for (auto const& token: tokens) {
+            auto text = token.text(source);
+            if (text[0] == '\n') {
+                line_number += 1;
+                line_offset = token.span.start();
+                builder = builder
+                    .end_line()
+                    .begin_line(line_number, line_offset);
+                continue;
+            }
+            auto marker = Span{};
+            if (token.span.intersects(loc)) {
+                marker = Span(loc.start(), std::min(loc.end(), token.span.end()));
+                loc = Span(marker.end(), loc.end());
+            }
+            (void)builder.add_token(
+                text,
+                token.span.start(),
+                marker,
+                token.text_color,
+                token.bg_color,
+                token.bold,
+                token.italic
+            );
+        }
+        return DiagnosticLocation(filename, builder.end_line().build());
     }
+private:
+    constexpr auto parse_tokens() const noexcept -> std::vector<Token> {
+        auto res = std::vector<Token>();
 
-    auto convert_loc(Info loc, [[maybe_unused]] builder_t builder) const -> dark::DiagnosticLocation override {
-        auto line1 = dark::LineDiagnosticToken { .tokens = {}, .line_number = loc.line, .source_location = 1 };
-        auto offset = loc.col + 1;
-        line1.tokens.push_back(get_token(TokenKind::Keyword, "int", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
-       
-        line1.tokens.push_back(get_token(TokenKind::Identifier, "test", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
+        for (auto i = 0u; i < source.size();) {
+            while (i < source.size() && std::isspace(source[i])) {
+                res.push_back(Token::whitespace(Span::from_size(i, 1)));
+                ++i;
+            }
 
-        line1.tokens.push_back(get_token(TokenKind::Puncutation, "(", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
-        
-        line1.tokens.push_back(get_token(TokenKind::Keyword, "int", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
-        
-        line1.tokens.push_back(get_token(TokenKind::Identifier, "a", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
+            {
+                auto start = i;
+                auto end = i;
+                while (i < source.size() && std::isalnum(source[i])) {
+                    ++i;
+                    end = i;
+                }
+                if (start != end) {
+                    auto text = source.substr(start, end - start);
+                    if (text == "void" || text == "int") {
+                        res.push_back(Token::keyword(Span(start, end)));
+                    } else {
+                        res.push_back(Token::identifier(Span(start, end)));
+                    }
+                    continue;
+                }
+            }
 
-        line1.tokens.push_back(get_token(TokenKind::Puncutation, ",", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
-        
-        line1.tokens.push_back(get_token(TokenKind::Keyword, "int", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
-        
-        line1.tokens.push_back(get_token(TokenKind::Identifier, "b", offset));
-        offset += static_cast<unsigned>(line1.tokens.back().token.size() + 1);
+            if (i < source.size()) {
+                res.push_back(Token::punctuation(Span::from_size(i, 1)));
+                ++i;
+            }
+        }
 
-        line1.tokens.push_back(get_token(TokenKind::Puncutation, ")", offset));
-        
-        return dark::DiagnosticLocation {
-            .filename = "test.cpp",
-            .source = dark::DiagnosticLocationTokens {
-                .lines = {
-                    line1
-                },
-                .marker = dark::LocRelSpan::from_size(0, 2).resolve(1)
-            },
-        };
+        return res;
     }
 };
+
 
 int main() {
 
-    /*auto stream = dark::Stream(stdout, dark::StreamColorMode::Enable);*/
-    auto stream = dark::out();
-    auto consumer = dark::BasicStreamDiagnosticConsumer<DiagnosticKind>(stream);
-    auto converter = SimpleConverter();
-    auto emitter = dark::BasicDiagnosticEmitter(
-        converter,
+    auto consumer = ConsoleDiagnosticConsumer();
+    auto converter = TokenConverter("void test( int a, int c );", "test.cpp");
+    auto emitter = dark::DiagnosticEmitter(
+        &converter,
         consumer
     );
 
-    static constexpr auto InvalidFunctionDefinition = dark_make_diagnostic_with_kind(
+    static constexpr auto InvalidFunctionDefinition = dark_make_diagnostic(
         DiagnosticKind::InvalidFunctionDefinition,
-        "Invalid function definition for {s} at {u32}"
+        "Invalid function definition for {} at {}",
+        char const*, std::uint32_t
     );
 
-    static constexpr auto InvalidFunctionPrototype = dark_make_diagnostic_with_kind(
+    static constexpr auto InvalidFunctionPrototype = dark_make_diagnostic(
         DiagnosticKind::InvalidFunctionPrototype,
         "The prototype is defined here"
     );
 
     emitter
-        .error({1, 1}, InvalidFunctionDefinition, "Test", 0u)
-        .context(
-            dark::DiagnosticContext()
+        .error(Span(0, 3), InvalidFunctionDefinition, "Test", 0u)
+            .begin_annotation()
                 .insert(")", 2)
-                .insert_marker_rel(")", 3)
-                .del(dark::MarkerRelSpan(4, 8))
+                .remove(Span(4, 8))
                 .error(
                     "prototype does not match the defination",
-                    dark::LocRelSpan(0, 2), // start + source_location
-                    dark::Span(19, 24)
+                    Span(0, 2),
+                    Span(19, 24)
                 )
-                .warn(dark::Span(6, 10), dark::Span(25, 27))
+                .warn(Span(6, 10), Span(25, 27))
                 .note("Try to fix the error")
-        )
-        .sub_diagnostic()
-            .warn({0, 1}, InvalidFunctionPrototype)
-        .build()
+            .end_annotation()
+        .emit();
+
+    emitter
+        .error(Span::from_size(5, 2), InvalidFunctionPrototype)
         .emit();
 
     return 0;
