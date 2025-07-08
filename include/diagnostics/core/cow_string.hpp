@@ -183,8 +183,9 @@ namespace dark::core {
         }
 
         auto substr(size_type pos = 0, size_type n = npos) const -> CowString {
-            if (is_owned()) return CowString(as_owned().substr(pos, n));
-            else return CowString(as_borrowed().substr(pos, n));
+            if (empty()) return {};
+            if (is_owned()) return CowString(as_owned().substr(pos, n), OwnedTag{});
+            else return CowString(as_borrowed().substr(pos, n), BorrowedTag());
         }
 
         friend auto swap(CowString& lhs, CowString& rhs) noexcept -> void {
