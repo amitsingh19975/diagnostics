@@ -201,7 +201,7 @@ namespace dark::internal {
                     .message_index = message_id,
                     .diagnostic_index = i,
                     .level = annotation.level,
-                    .span = Span(span.start(), std::min(span.end(), source_span.end()))
+                    .span = Span(std::max(span.start(), source_span.start()), std::min(span.end(), source_span.end()))
                 });
             }
 
@@ -679,14 +679,14 @@ namespace dark::internal {
                     auto k = 0ul;
                     bool found = false;
                     size = el.markers.size();
+
+                    // Find the overlapping spans
                     for (; s < size; ++s) {
                         auto lhs = el.markers[s];
-                        if (lhs.kind == MarkerKind::Insert) continue;
                         k = 0;
                         for (; k < size; ++k) {
                             auto rhs = el.markers[k];
                             if (s == k) continue;
-                            if (rhs.kind == MarkerKind::Insert) continue;
 
                             //   |--------- Token ----------|
                             //      |---- span 1-------|
@@ -784,8 +784,8 @@ namespace dark::internal {
                         token.token_start_offset += size;
                     }
 
-                    {
-                        auto size = (end - start);
+                    auto size = (end - start);
+                    if (size != 0) {
                         l.tokens.push_back(NormalizedDiagnosticTokenInfo {
                             .text = token.text.substr(start, size),
                             .markers = std::move(markers),
@@ -2512,7 +2512,7 @@ namespace dark::internal {
         }
 
         constexpr auto init(
-            term::Canvas const& canvas,
+            term::Canvas& canvas,
             term::Point marker,
             term::BoundingBox message,
             term::Style const& style
@@ -2522,15 +2522,21 @@ namespace dark::internal {
 
             for (auto y = marker.y; y < m_container.max_y(); ++y) {
                 auto x = m_container.min_x();
+                auto line_found = m_container.max_x();
                 for (; x < m_container.max_x(); ++x) {
                     auto const& cell = canvas(y, x);
-                    if (cell.style.group_id >= GroupId::diagnostic_path) continue;
+                    if (cell.style.group_id >= GroupId::diagnostic_path) {
+                        line_found = x;
+                        continue;
+                    }
                     if (cell.to_string() == " " || cell.empty()) {
                         this->operator()(y, x) = NodeState::Open;
                     } else {
                         break;
                     }
                 }
+
+                x = std::min(line_found, x);
 
                 for (; x < m_container.max_x(); ++x) {
                     auto const& cell = canvas(y, x);
@@ -2558,9 +2564,9 @@ namespace dark::internal {
                     }
                 }
 
-                x = m_container.max_x();
+                x = m_container.max_x() - 1;
                 for (; x > m_container.min_x(); --x) {
-                    auto const& cell = canvas(y, x - 1);
+                    auto const& cell = canvas(y, x);
                     if (cell.style.group_id >= GroupId::diagnostic_path) continue;
                     if (cell.to_string() == " " || cell.empty()) {
                         this->operator()(y, x) = NodeState::Open;
@@ -2842,12 +2848,12 @@ namespace dark::internal {
             return std::get<0>(el).x == 0;
         }), points.end());
 
+        auto graph = DiagnosticPathGraph(container);
         // The last pass: find the complex using A* alogrithm paths and then render.
         for (auto i = 0ul; i < points.size();) {
             auto [marker, message, style] = points[i];
             marker.y += 2;
 
-            auto graph = DiagnosticPathGraph(container);
             graph.init(canvas, marker, message, style);
             graph.build_route(canvas, marker, style, config);
 
@@ -2861,6 +2867,7 @@ namespace dark::internal {
                 }
 
                 marker = std::get<0>(c);
+                style = std::get<2>(c);
                 marker.y += 2;
 
                 graph.build_route(canvas, marker, style, config);
