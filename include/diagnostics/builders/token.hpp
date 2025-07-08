@@ -112,7 +112,7 @@ namespace dark::builder {
          */
         [[nodiscard("Missing `end_line()` call")]] auto add_token(
             core::CowString text,
-            dsize_t column_number,
+            dsize_t token_start_offset,
             Span marker = {},
             Color text_color = Color::Default,
             Color bg_color = Color::Default,
@@ -121,7 +121,7 @@ namespace dark::builder {
         ) -> DiagnosticLineTokenBuilder {
             m_builder->m_tokens.lines[m_line_index].tokens.emplace_back(
                 std::move(text),
-                column_number,
+                token_start_offset,
                 marker,
                 text_color,
                 bg_color,
