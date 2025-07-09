@@ -1317,12 +1317,13 @@ namespace dark::internal {
                                     if (m.is_start && m.kind != MarkerKind::Primary) {
                                         auto& marker_to_message_item = marker_to_message[max_pt];
                                         if (as.spans[m.annotation_index].message_index != DiagnosticMessageSpanInfo::npos) {
-                                            message_bottom_padding = 1;
+                                            message_bottom_padding = 2;
                                         }
                                         marker_to_message_item.push_back(m);
                                     }
 
                                     auto tx = pt.x;
+
                                     // render each marker with token text
                                     for (auto s = m.span.start(); s < m.span.end();) {
                                         auto pos = s;
@@ -1411,7 +1412,7 @@ namespace dark::internal {
                                     x = std::max(tx, x);
                                 }
 
-                                bottom_padding = std::max(marker_rel_pos + 1, bottom_padding);
+                                bottom_padding = std::max(marker_rel_pos, bottom_padding);
                             }
 
                             // Render after the marker
