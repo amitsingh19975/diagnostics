@@ -109,7 +109,6 @@ private:
 
         for (auto i = 0u; i < source.size();) {
             while (i < source.size() && std::isspace(source[i])) {
-                res.push_back(Token::whitespace(Span::from_size(i, 1)));
                 ++i;
             }
 
