@@ -158,3 +158,6 @@ You can see more examples inside the example folder.
 ## Example 3
 ![Example 3](assets/example_3.png)
 
+## Example 4
+![Example 4](assets/example_4.png)
+
