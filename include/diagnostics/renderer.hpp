@@ -728,8 +728,22 @@ namespace dark::internal {
 
             // isolate marked tokens
             auto tokens = std::move(l.tokens);
+            if (tokens.empty()) continue;
+            std::size_t last_token_end = tokens[0].token_start_offset;
             for (auto t = 0ul; t < tokens.size(); ++t) {
                 auto& token = tokens[t];
+                auto text = token.text.to_borrowed();
+
+                auto diff = std::max<std::size_t>(tokens[t].token_start_offset, last_token_end) - last_token_end;
+                if (diff != 0) {
+                    l.tokens.push_back(NormalizedDiagnosticTokenInfo {
+                        .text = core::CowString(std::format("{:{}}", ' ', diff)),
+                        .token_start_offset = static_cast<unsigned>(last_token_end),
+                    });
+                }
+
+                last_token_end = tokens[t].token_start_offset + text.size();
+
                 if (token.markers.empty()) {
                     l.tokens.push_back(std::move(token));
                     continue;
@@ -738,7 +752,6 @@ namespace dark::internal {
                 auto start_index = std::size_t{};
                 auto end_index = start_index + 1;
 
-                auto text = token.text.to_borrowed();
                 auto previous_start = std::size_t{};
 
                 while (start_index < token.markers.size()) {
